@@ -135,43 +135,7 @@ class Autorecruitment:
 
 
                 
-        '''
-        # 在“公开招募”页面找到“开始招募”按钮并点击
-        template2_1 = os.path.join(os.path.dirname(__file__), "../templates/PublicRecruitment/kaishizhaomu1.png")
-        detector2_1 = IconDetector(template2_1)
-        screenshot2_1 = screenshot_tool.capture()
-        (x2_1, y2_1), conf2 = detector2_1.find_icon(screenshot2_1)
-
-        template2_2 = os.path.join(os.path.dirname(__file__), "../templates/PublicRecruitment/kaishizhaomu2.png")
-        detector2_2 = IconDetector(template2_2)
-        screenshot2_2 = screenshot_tool.capture()
-        (x2_2, y2_2), conf2 = detector2_1.find_icon(screenshot2_2)
-
-        template2_3 = os.path.join(os.path.dirname(__file__), "../templates/PublicRecruitment/kaishizhaomu3.png")
-        detector2_3 = IconDetector(template2_3)
-        screenshot2_3 = screenshot_tool.capture()
-        (x2_3, y2_3), conf2 = detector2_1.find_icon(screenshot2_3)
-
-        template2_4 = os.path.join(os.path.dirname(__file__), "../templates/PublicRecruitment/kaishizhaomu4.png")
-        detector2_4 = IconDetector(template2_4)
-        screenshot2_4 = screenshot_tool.capture()
-        (x2_4, y2_4), conf2 = detector2_1.find_icon(screenshot2_4)
-
-
-        
-        
-        if x2_1 is not None:
-            
-            h, w = detector2_1.template.shape[:2]
-            top_left = (x2_1 - w // 2, y2_1 - h // 2)
-            bottom_right = (x2_1 + w // 2, y2_1 + h // 2)
-            display_tool.show_image_with_rectangle(screenshot2_1, top_left, bottom_right)
-            tapscreen_tool.tap_screen(x2_1, y2_1)
-        else:
-            print("未找到“开始招募”按钮")
-        
-        '''
-
+      
 
 default_PublicRecruitment = Autorecruitment()
 

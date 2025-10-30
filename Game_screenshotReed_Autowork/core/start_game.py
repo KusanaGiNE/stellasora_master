@@ -29,6 +29,8 @@ class StartGame:
         gameicon_detector = IconDetector(gameicon_template_path)
         game_loding_template_path = os.path.join(os.path.dirname(__file__), "../templates/gamestart/game_loading.png")
         gameloding_detector = IconDetector(game_loding_template_path)
+        maintitle_chake = os.path.join(os.path.dirname(__file__), "../templates/mainTitle_icon/Market.png")
+        maintitle_detector = IconDetector(maintitle_chake)
 
         screenshot1 = screenshot_tool.capture()
         (x1, y1), conf1 = gameicon_detector.find_icon(screenshot1)
@@ -46,7 +48,7 @@ class StartGame:
                 (x2, y2), conf1 = gameloding_detector.find_icon(screenshot2)
                 print("登录界面未加载完成")
                 time.sleep(1)
-               
+            
             
             self.display_tool.show_image_with_rectangle(screenshot2, (x2, y2), (x2+10, y2+10))
             time.sleep(1)
@@ -55,8 +57,22 @@ class StartGame:
             tapscreen_tool.tap_screen(1116, 104)
             time.sleep(1)
             tapscreen_tool.tap_screen(1116, 104)
+            time.sleep(1)
+
+            # 主页面检测
+            screenshot3 = screenshot_tool.capture()
+            (x3, y3), conf1 = maintitle_detector.find_icon(screenshot3)
+            tapscreen_tool.tap_screen(678, 28)
+            if x3 is None:
+                print("未进入主页面")
+            while x3 is None:
+                screenshot3 = screenshot_tool.capture()
+                (x3, y3), conf1 = maintitle_detector.find_icon(screenshot3)
+                print("未进入主页面")
+                tapscreen_tool.tap_screen(678, 28)
+                time.sleep(1)
             
-            
+            print("已进入主页面")
             
 
         else:
