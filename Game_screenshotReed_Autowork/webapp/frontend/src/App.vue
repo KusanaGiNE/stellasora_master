@@ -29,13 +29,18 @@
                 日常任务流程
               </label>
             </div>
-            <button class="primary-btn" @click="startTasks" :disabled="busy || !hasSelectedTasks">
-              {{ busy ? '执行中...' : '开始执行' }}
-            </button>
+            <div class="actions-row">
+              <button class="primary-btn" @click="startUnifiedTasks" :disabled="taskStatus.running || !hasSelectedTasks">
+                {{ taskStatus.running ? '执行中...' : '开始执行' }}
+              </button>
+              <button class="danger-btn" v-if="taskStatus.canStop" @click="stopTask">
+                停止
+              </button>
+            </div>
           </div>
 
           <div class="status-line">
-            当前状态: <strong>{{ statusText }}</strong>
+            当前状态: <strong>{{ statusLine }}</strong>
           </div>
 
           <div class="screenshot-wrap" v-if="image">
@@ -84,8 +89,7 @@ export default {
       apiBase: (import.meta.env.VITE_API_BASE || '').replace(/\/$/, ''),
       activeTab: 'tasks',
       image: null,
-      statusText: '-',
-      busy: false,
+      statusText: '-', // 兼容旧字段
       tasks: {
         startGame: false,
         dailytasks: false
@@ -93,21 +97,39 @@ export default {
       logs: [],
       lastLogIndex: 0,
       _poller: null,
+      _statusPoller: null,
       settings: {
         adb_path: ''
       },
       savingSettings: false,
       configStatus: '',
       configStatusType: 'info'
+      ,
+  taskStatus: { state: 'idle', task: null, running: false, canStop: false }
     }
   },
   computed: {
     hasSelectedTasks() {
       return Object.values(this.tasks).some(v => v)
+    },
+    statusLine() {
+      const s = this.taskStatus
+      if (s.running) {
+        if (s.task === 'combo') return '组合任务执行中'
+        if (s.task === 'start_game') return '启动游戏中'
+        if (s.task === 'dailytasks') return '日常任务执行中'
+      }
+      switch (s.state) {
+        case 'finished': return '任务已完成'
+        case 'stopped': return '已停止'
+        case 'idle': default: return '空闲'
+      }
     }
   },
   mounted() {
     this.fetchConfig()
+    this.startPolling()
+    this.startStatusPolling()
   },
   watch: {
     activeTab(newVal) {
@@ -129,47 +151,47 @@ export default {
       return res.json()
     },
 
-    async executeStartGame() {
-      this.busy = true
-      this.statusText = '正在启动游戏...'
+    taskTypeSelected() {
+      if (this.tasks.startGame && this.tasks.dailytasks) return 'combo'
+      if (this.tasks.startGame) return 'start_game'
+      if (this.tasks.dailytasks) return 'dailytasks'
+      return null
+    },
+
+    async startUnifiedTasks() {
+      const type = this.taskTypeSelected()
+      if (!type) return
       try {
-        const r = await this.handleFetch('/start_game', { method: 'POST' })
-        this.statusText = r.ok ? '启动完成' : `Error: ${r.error}`
+        const res = await fetch(this.apiUrl('/task/start'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type })
+        })
+        const data = await res.json()
+        if (!data.ok) {
+          this.statusText = data.error || '启动失败'
+        } else {
+          this.statusText = '任务已启动'
+        }
       } catch (e) {
-        this.statusText = `请求失败: ${e.message}`
+        this.statusText = `启动失败: ${e.message}`
       }
     },
 
-    async executedailytasks() {
-      this.busy = true
-      this.statusText = '正在完成日常任务...'
+    async stopTask() {
       try {
-        const r = await this.handleFetch('/start_dailytasks', { method: 'POST' })
-        this.statusText = r.ok ? '已完成日常任务' : `Error: ${r.error}`
+        const res = await fetch(this.apiUrl('/task/stop'), { method: 'POST' })
+        const data = await res.json()
+        if (!data.ok) {
+          this.statusText = data.error || '停止失败'
+        } else {
+          this.statusText = '停止指令已发送'
+        }
       } catch (e) {
-        this.statusText = `请求失败: ${e.message}`
+        this.statusText = `停止失败: ${e.message}`
       }
     },
 
-    async startTasks() {
-      try {
-        this.busy = true
-        this.statusText = '任务执行中...'
-        this.startPolling()
-        if (this.tasks.startGame) {
-          await this.executeStartGame()
-        }
-        if (this.tasks.dailytasks) {
-          await this.executedailytasks()
-        }
-        this.statusText = '所有任务执行完成'
-      } catch (e) {
-        this.statusText = `任务执行失败: ${e.message}`
-      } finally {
-        this.busy = false
-        setTimeout(() => this.stopPolling(), 1500)
-      }
-    },
 
     startPolling() {
       if (this._poller) return
@@ -198,6 +220,29 @@ export default {
         }
       } catch (e) {
         // ignore polling errors silently
+      }
+    },
+
+    startStatusPolling() {
+      if (this._statusPoller) return
+      this._statusPoller = setInterval(this.pollStatus, 1000)
+      this.pollStatus()
+    },
+    stopStatusPolling() {
+      if (this._statusPoller) {
+        clearInterval(this._statusPoller)
+        this._statusPoller = null
+      }
+    },
+    async pollStatus() {
+      try {
+        const res = await fetch(this.apiUrl('/task/status'))
+        const data = await res.json()
+        if (data.ok && data.status) {
+          this.taskStatus = data.status
+        }
+      } catch (e) {
+        // swallow
       }
     },
 
@@ -357,6 +402,25 @@ body {
 }
 
 .primary-btn:disabled {
+  background: rgba(168, 107, 255, 0.4);
+  cursor: not-allowed;
+}
+
+.danger-btn {
+  padding: 0.55rem 1.4rem;
+  background: #a83c8d;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.danger-btn:hover:not(:disabled) {
+  background: #9358ef;
+}
+
+.danger-btn:disabled {
   background: rgba(168, 107, 255, 0.4);
   cursor: not-allowed;
 }
