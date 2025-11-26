@@ -14,7 +14,7 @@ PROJECT_ROOT = BASE_DIR.parent
 # 确保项目根目录在 sys.path 中，以便从 webapp 启动时能成功导入 `core`
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core import MumuScreenshot, Tapscreen, Autorecruitment, StartGame, IconDetector, Dailytasks
+from core import MumuScreenshot, Tapscreen, StartGame, IconDetector, Dailytasks
 from threading import Event, Thread, Lock
 from core.config import get_config, update_config
 
@@ -29,7 +29,6 @@ except Exception:
 
 screenshot_tool = MumuScreenshot()
 tapscreen_tool = Tapscreen()
-autorecruit_tool = Autorecruitment()
 startgame_tool = StartGame()
 dailytasks_tool = Dailytasks()
 
