@@ -47,19 +47,19 @@ class Slide:
 			msg = stderr.strip() or stdout.strip() or str(exc)
 			raise RuntimeError(f"滑动失败: {msg}") from exc
 
-		def _adb_path(self):
-			path = self._adb_override or get_adb_path(raise_on_missing=False)
-			if path is None:
-				raise RuntimeError("ADB 路径未配置，请在设置页面填写 adb_path 后重试")
-			if not path.exists():
-				raise RuntimeError(f"指定的 ADB 工具不存在: {path}")
-			return path
+	def _adb_path(self):
+		path = self._adb_override or get_adb_path(raise_on_missing=False)
+		if path is None:
+			raise RuntimeError("ADB 路径未配置，请在设置页面填写 adb_path 后重试")
+		if not path.exists():
+			raise RuntimeError(f"指定的 ADB 工具不存在: {path}")
+		return path
 
-		def _port_base(self, instance_num: int | None) -> int:
-			base = self._default_instance_override
-			if base is None:
-				base = get_default_instance()
-			return instance_num if instance_num is not None else base
+	def _port_base(self, instance_num: int | None) -> int:
+		base = self._default_instance_override
+		if base is None:
+			base = get_default_instance()
+		return instance_num if instance_num is not None else base
 
 	def swipe_down(self, x: int | None = None, start_y: int = 350, end_y: int = 500, duration: int = 400, instance_num: int | None = None) -> None:
 		"""默认在屏幕中部执行向下滑动."""

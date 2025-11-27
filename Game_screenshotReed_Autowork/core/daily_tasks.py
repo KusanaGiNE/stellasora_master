@@ -42,6 +42,26 @@ class Dailytasks:
         self.tapscreen_tool = Tapscreen()
         self.display_tool = Showdetector(output_dir="test")
         self.slide_tool = Slide()
+
+        # 预加载所有图标检测器，避免每次运行任务时重复加载
+        tpl_dir = os.path.join(os.path.dirname(__file__), "../templates")
+        def _load(subpath):
+            return IconDetector(os.path.join(tpl_dir, subpath))
+
+        self.maintitle_detector = _load("mainTitle_icon/Market.png")
+        self.market_detector = _load("mainTitle_icon/Purchasing.png")
+        self.marketpagecheak_detector = _load("market/MarketPageCheak.png")
+        self.commission_detector = _load("mainTitle_icon/commission_red.png")
+        self.commissionpagecheak_detector = _load("commission/CommissionPageCheak.png")
+        self.iscommission_detector = _load("commission/iscommission.png")
+        self.commissionagain_detector = _load("commission/commission_again.png")
+        self.giftpagecheak_detector = _load("gift/giftpagecheak.png")
+        self.cardpagecheak_detector = _load("card/cardpagecheak.png")
+        self.characterpagecheak_detector = _load("character/characterpagecheak.png")
+        self.characterupgradepagecheak_detector = _load("character/upgrade.png")
+        self.taskpagecheak_detector = _load("task/taskpagecheak.png")
+        
+        
         
 
     @staticmethod
@@ -70,53 +90,19 @@ class Dailytasks:
         slide_tool = self.slide_tool
         
         
-        #商城图标检测，用于检测是否处于主页面
-        maintitle_chake = os.path.join(os.path.dirname(__file__), "../templates/mainTitle_icon/Market.png")
-        maintitle_detector = IconDetector(maintitle_chake)
-
-        #采购图标检测
-        market_template_path = os.path.join(os.path.dirname(__file__), "../templates/mainTitle_icon/Purchasing.png")
-        market_detector = IconDetector(market_template_path)
-
-        #采购界面检测
-        marketpagecheak_template_path = os.path.join(os.path.dirname(__file__), "../templates/market/MarketPageCheak.png")
-        marketpagecheak_detector = IconDetector(marketpagecheak_template_path)
-
-        #检测委托是否有红点
-        commission_template_path  = os.path.join(os.path.dirname(__file__), "../templates/mainTitle_icon/commission_red.png")
-        commission_detector = IconDetector(commission_template_path)
-        
-        #委托页面检测
-        commissionpagecheak_template_path  = os.path.join(os.path.dirname(__file__), "../templates/commission/CommissionPageCheak.png")
-        commissionpagecheak_detector = IconDetector(commissionpagecheak_template_path)
-
-        #派遣判定
-        iscommission_template_path  = os.path.join(os.path.dirname(__file__), "../templates/commission/iscommission.png")
-        iscommission_detector = IconDetector(iscommission_template_path)
-        
-        #再次派遣按钮检测
-        commissionagain_template_path  = os.path.join(os.path.dirname(__file__), "../templates/commission/commission_again.png")
-        commissionagain_detector = IconDetector(commissionagain_template_path)
-
-        #礼物页面检测
-        giftpagecheak_template_path  = os.path.join(os.path.dirname(__file__), "../templates/gift/giftpagecheak.png")
-        giftpagecheak_detector = IconDetector(giftpagecheak_template_path)
-
-        #秘纹界面检测
-        cardpagecheak_template_path  = os.path.join(os.path.dirname(__file__), "../templates/card/cardpagecheak.png")
-        cardpagecheak_detector = IconDetector(cardpagecheak_template_path)
-
-        #旅人界面检测
-        characterpagecheak_template_path  = os.path.join(os.path.dirname(__file__), "../templates/character/characterpagecheak.png")
-        characterpagecheak_detector = IconDetector(characterpagecheak_template_path)
-
-        #旅人升级检测
-        characterupgradepagecheak_template_path  = os.path.join(os.path.dirname(__file__), "../templates/character/upgrade.png")
-        characterupgradepagecheak_detector = IconDetector(characterupgradepagecheak_template_path)
-
-        #任务领奖界面检测
-        taskpagecheak_template_path  = os.path.join(os.path.dirname(__file__), "../templates/task/taskpagecheak.png")
-        taskpagecheak_detector = IconDetector(taskpagecheak_template_path)
+        # 使用预加载的检测器
+        maintitle_detector = self.maintitle_detector
+        market_detector = self.market_detector
+        marketpagecheak_detector = self.marketpagecheak_detector
+        commission_detector = self.commission_detector
+        commissionpagecheak_detector = self.commissionpagecheak_detector
+        iscommission_detector = self.iscommission_detector
+        commissionagain_detector = self.commissionagain_detector
+        giftpagecheak_detector = self.giftpagecheak_detector
+        cardpagecheak_detector = self.cardpagecheak_detector
+        characterpagecheak_detector = self.characterpagecheak_detector
+        characterupgradepagecheak_detector = self.characterupgradepagecheak_detector
+        taskpagecheak_detector = self.taskpagecheak_detector
 
         def _sleep(sec):
             if sleep_fn:
