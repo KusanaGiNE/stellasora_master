@@ -28,6 +28,15 @@
                 <input type="checkbox" v-model="tasks.dailytasks">
                 日常任务流程
               </label>
+              <label>
+                <input type="checkbox" v-model="tasks.towerClimbing">
+                自动爬塔
+              </label>
+              <div v-if="tasks.towerClimbing" class="sub-options">
+                 <label><input type="radio" v-model="towerAttribute" value="light_earth"> 光/地</label>
+                 <label><input type="radio" v-model="towerAttribute" value="water_wind"> 水/风</label>
+                 <label><input type="radio" v-model="towerAttribute" value="fire_dark"> 火/暗</label>
+              </div>
             </div>
             <div class="actions-row">
               <button class="primary-btn" @click="startUnifiedTasks" :disabled="taskStatus.running || !hasSelectedTasks">
@@ -98,8 +107,10 @@ export default {
       statusText: '-', // 兼容旧字段
       tasks: {
         startGame: false,
-        dailytasks: false
+        dailytasks: false,
+        towerClimbing: false
       },
+      towerAttribute: 'light_earth',
       logs: [],
       lastLogIndex: 0,
       _poller: null,
@@ -123,6 +134,7 @@ export default {
         if (s.task === 'combo') return '组合任务执行中'
         if (s.task === 'start_game') return '启动游戏中'
         if (s.task === 'dailytasks') return '日常任务执行中'
+        if (s.task === 'tower_climbing') return '自动爬塔中'
       }
       switch (s.state) {
         case 'finished': return '任务已完成'
@@ -158,6 +170,7 @@ export default {
     },
 
     taskTypeSelected() {
+      if (this.tasks.towerClimbing) return 'tower_climbing'
       if (this.tasks.startGame && this.tasks.dailytasks) return 'combo'
       if (this.tasks.startGame) return 'start_game'
       if (this.tasks.dailytasks) return 'dailytasks'
@@ -168,10 +181,14 @@ export default {
       const type = this.taskTypeSelected()
       if (!type) return
       try {
+        const payload = { type }
+        if (type === 'tower_climbing') {
+          payload.attribute_type = this.towerAttribute
+        }
         const res = await fetch(this.apiUrl('/task/start'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type })
+          body: JSON.stringify(payload)
         })
         const data = await res.json()
         if (!data.ok) {
@@ -407,6 +424,21 @@ body {
   display: block;
   margin: 0.5rem 0;
   user-select: none;
+}
+
+.sub-options {
+  margin-left: 1.5rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.sub-options label {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
 }
 
 .checkbox-group input[type="checkbox"] {

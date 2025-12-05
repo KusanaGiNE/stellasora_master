@@ -14,7 +14,7 @@ PROJECT_ROOT = BASE_DIR.parent
 # 确保项目根目录在 sys.path 中，以便从 webapp 启动时能成功导入 `core`
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core import MumuScreenshot, Tapscreen, StartGame, IconDetector, Dailytasks
+from core import MumuScreenshot, Tapscreen, StartGame, IconDetector, Dailytasks, TowerClimber
 from threading import Event, Thread, Lock
 from core.config import get_config, update_config
 
@@ -31,6 +31,7 @@ screenshot_tool = MumuScreenshot()
 tapscreen_tool = Tapscreen()
 startgame_tool = StartGame()
 dailytasks_tool = Dailytasks()
+towerclimber_tool = TowerClimber()
 
 """任务控制：支持启动 / 停止 / 暂停 / 恢复。"""
 _task_stop_event: Event | None = None
@@ -62,14 +63,15 @@ def _interruptible_sleep(seconds: float, stop_event: Event | None) -> bool:
             break
         time.sleep(min(0.2, remaining))
     return True
-
-def _run_task(task_type: str, stop_event: Event):
+def _run_task(task_type: str, stop_event: Event, **kwargs):
     global _task_state
     try:
         if task_type == 'start_game':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'dailytasks':
             dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
+        elif task_type == 'tower_climbing':
+            towerclimber_tool.run(attribute_type=kwargs.get('attribute_type'), stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'combo':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
             if not stop_event.is_set():
@@ -109,7 +111,9 @@ def task_start():
     global _task_thread, _task_stop_event, _task_pause_event, _task_state, _task_name
     data = request.get_json(silent=True) or {}
     task_type = data.get('type')
-    if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop'):
+    attribute_type = data.get('attribute_type')
+
+    if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
     with _task_lock:
         if _task_thread and _task_thread.is_alive():
@@ -119,7 +123,12 @@ def task_start():
         _task_pause_event.set()  # 初始状态为运行（非暂停）
         _task_state = 'running'
         _task_name = task_type
-        _task_thread = Thread(target=_run_task, args=(task_type, _task_stop_event), daemon=True)
+        
+        kwargs = {}
+        if task_type == 'tower_climbing':
+            kwargs['attribute_type'] = attribute_type
+
+        _task_thread = Thread(target=_run_task, args=(task_type, _task_stop_event), kwargs=kwargs, daemon=True)
         _task_thread.start()
     return jsonify({'ok': True, 'message': '任务已启动', 'task': task_type})
 
