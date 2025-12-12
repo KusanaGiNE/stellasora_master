@@ -1,6 +1,11 @@
 import cv2
 import ddddocr
 import numpy as np
+import PIL.Image
+
+# Monkey patch ANTIALIAS for Pillow 10.0.0+ compatibility
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 class OcrTool:
     """
@@ -9,7 +14,14 @@ class OcrTool:
     def __init__(self, beta=True):
         # beta=True 启用新版模型，识别效果通常更好
         # show_ad=False 关闭广告打印
-        self.ocr = ddddocr.DdddOcr(beta=beta, show_ad=False)
+        # 注意：某些版本的 ddddocr 可能不支持 beta 参数，如果报错请尝试移除 beta=beta
+        try:
+            self.ocr = ddddocr.DdddOcr(beta=beta, show_ad=False)
+        except TypeError:
+            try:
+                self.ocr = ddddocr.DdddOcr(show_ad=False)
+            except TypeError:
+                self.ocr = ddddocr.DdddOcr()
 
     def recognize_number(self, image: np.ndarray, region: tuple[int, int, int, int] | None = None) -> int:
         """

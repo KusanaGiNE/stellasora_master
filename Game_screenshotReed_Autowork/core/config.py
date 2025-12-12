@@ -10,6 +10,7 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 DEFAULT_CONFIG: Dict[str, Any] = {
     "adb_path": "",
     "default_instance": 1,
+    "adb_port": 16384,
 }
 
 _CONFIG_CACHE: Dict[str, Any] | None = None
@@ -73,6 +74,14 @@ def get_default_instance() -> int:
         value = int(config.get("default_instance", 1))
     except (TypeError, ValueError):
         value = 1
+    return value
+
+def get_adb_port() -> int:
+    config = get_config()
+    try:
+        value = int(config.get("adb_port", 16384))
+    except (TypeError, ValueError):
+        value = 16384
     return value
 
 

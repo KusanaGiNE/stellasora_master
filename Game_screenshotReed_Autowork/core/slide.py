@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 
-from .config import get_adb_path, get_default_instance, resolve_path
+from .config import get_adb_path, get_default_instance, resolve_path, get_adb_port
 
 
 class Slide:
@@ -15,8 +15,7 @@ class Slide:
 		self._default_instance_override = default_instance
 
 	def _port_for(self, instance_num: int | None) -> int:
-		base = self._port_base(instance_num)
-		return 7554 + base
+		return get_adb_port()
 
 	def _run_adb(self, args: str, instance_num: int | None = None) -> None:
 		port = self._port_for(instance_num)

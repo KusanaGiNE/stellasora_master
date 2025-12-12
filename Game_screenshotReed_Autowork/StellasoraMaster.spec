@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
@@ -16,12 +16,15 @@ PROJECT_ROOT = SPEC_PATH.parent
 # Include dynamically imported dependencies (e.g. cv2 modules)
 hiddenimports = collect_submodules("cv2") + [
     "numpy",
+    "ddddocr",
+    "PIL",
+    "flask",
 ]
 
 def _data_entry(src: Path, dest: str):
     return (str(src), dest)
 
-DATAS = []
+DATAS = collect_data_files("ddddocr")
 
 # Bundle web static assets if present
 static_dir = PROJECT_ROOT / "webapp" / "static"

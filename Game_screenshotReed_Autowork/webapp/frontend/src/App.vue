@@ -20,10 +20,10 @@
         <div class="main">
           <div class="task-selection">
             <div class="checkbox-group">
-              <label>
+              <!-- <label>
                 <input type="checkbox" v-model="tasks.startGame">
                 启动游戏
-              </label>
+              </label> -->
               <label>
                 <input type="checkbox" v-model="tasks.dailytasks">
                 日常任务流程
@@ -33,9 +33,17 @@
                 自动爬塔
               </label>
               <div v-if="tasks.towerClimbing" class="sub-options">
-                 <label><input type="radio" v-model="towerAttribute" value="light_earth"> 光/地</label>
-                 <label><input type="radio" v-model="towerAttribute" value="water_wind"> 水/风</label>
-                 <label><input type="radio" v-model="towerAttribute" value="fire_dark"> 火/暗</label>
+                 <div class="tower-attrs">
+                   <label><input type="radio" v-model="towerAttribute" value="light_earth"> 光/地</label>
+                   <label><input type="radio" v-model="towerAttribute" value="water_wind"> 水/风</label>
+                   <label><input type="radio" v-model="towerAttribute" value="fire_dark"> 火/暗</label>
+                 </div>
+                 <div class="tower-settings">
+                   <label class="input-label">
+                     指定次数（若为0则运行至周任务完成为止）:
+                     <input type="number" v-model.number="towerMaxRuns" min="0" placeholder="0为不限" class="small-input">
+                   </label>
+                 </div>
               </div>
             </div>
             <div class="actions-row">
@@ -84,8 +92,21 @@
           placeholder="例如 D:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe"
         />
         <p class="hint">可填写绝对路径或相对于 exe 所在目录的相对路径。</p>
+
+        <label for="adbPort">ADB 端口号</label>
+        <input
+          id="adbPort"
+          type="number"
+          v-model.number="settings.adb_port"
+          placeholder="例如 16384"
+        />
+        <p class="hint">MuMu模拟器默认端口通常为 7555 或 16384，请根据实际情况填写。</p>
+
         <div class="settings-actions">
-          <button type="submit" class="primary-btn" :disabled="savingSettings">
+          <button type="button" class="secondary-btn" @click="testConnection" :disabled="testingConnection || savingSettings">
+            {{ testingConnection ? '测试中...' : '测试连接' }}
+          </button>
+          <button type="submit" class="primary-btn" :disabled="savingSettings || testingConnection">
             {{ savingSettings ? '保存中...' : '保存设置' }}
           </button>
           <span v-if="configStatus" :class="['status-message', configStatusType]">
@@ -111,14 +132,17 @@ export default {
         towerClimbing: false
       },
       towerAttribute: 'light_earth',
+      towerMaxRuns: 0,
       logs: [],
       lastLogIndex: 0,
       _poller: null,
       _statusPoller: null,
       settings: {
-        adb_path: ''
+        adb_path: '',
+        adb_port: 16384
       },
       savingSettings: false,
+      testingConnection: false,
       configStatus: '',
       configStatusType: 'info',
       taskStatus: { state: 'idle', task: null, running: false, canStop: false, canPause: false, canResume: false }
@@ -184,6 +208,7 @@ export default {
         const payload = { type }
         if (type === 'tower_climbing') {
           payload.attribute_type = this.towerAttribute
+          payload.max_runs = this.towerMaxRuns
         }
         const res = await fetch(this.apiUrl('/task/start'), {
           method: 'POST',
@@ -297,6 +322,7 @@ export default {
           throw new Error(data.error || '无法获取配置')
         } 
         this.settings.adb_path = data.config?.adb_path || ''
+        this.settings.adb_port = data.config?.adb_port || 16384
         this.configStatus = ''
       } catch (e) {
         this.configStatus = `读取配置失败: ${e.message}`
@@ -314,13 +340,17 @@ export default {
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ adb_path: this.settings.adb_path || '' })
+          body: JSON.stringify({ 
+            adb_path: this.settings.adb_path || '',
+            adb_port: this.settings.adb_port || 16384
+          })
         })
         const data = await res.json()
         if (!res.ok || !data.ok) {
           throw new Error(data.error || '保存失败')
         }
         this.settings.adb_path = data.config?.adb_path || ''
+        this.settings.adb_port = data.config?.adb_port || 16384
         this.configStatus = '保存成功'
         this.configStatusType = 'success'
       } catch (e) {
@@ -328,6 +358,33 @@ export default {
         this.configStatusType = 'error'
       } finally {
         this.savingSettings = false
+      }
+    },
+
+    async testConnection() {
+      this.testingConnection = true
+      this.configStatus = '正在测试连接...'
+      this.configStatusType = 'info'
+      try {
+        const res = await fetch(this.apiUrl('/config/test_adb'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adb_path: this.settings.adb_path || '',
+            adb_port: this.settings.adb_port || 16384
+          })
+        })
+        const data = await res.json()
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || '连接失败')
+        }
+        this.configStatus = '连接成功！'
+        this.configStatusType = 'success'
+      } catch (e) {
+        this.configStatus = `测试失败: ${e.message}`
+        this.configStatusType = 'error'
+      } finally {
+        this.testingConnection = false
       }
     }
   },
@@ -430,9 +487,26 @@ body {
   margin-left: 1.5rem;
   margin-bottom: 0.5rem;
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.5rem;
   font-size: 0.9em;
   color: rgba(255, 255, 255, 0.8);
+}
+
+.tower-attrs, .tower-settings {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.small-input {
+  width: 60px;
+  padding: 2px 5px;
+  margin-left: 5px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  border-radius: 4px;
 }
 
 .sub-options label {

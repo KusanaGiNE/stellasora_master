@@ -144,11 +144,7 @@ class Dailytasks:
 
         # 领取商店随机奖励
         screenshot1 = screenshot_tool.capture()
-        (x1, y1), conf1 = market_detector.find_icon(screenshot1)
-        if x1 is not None and y1 is not None:
-            display_tool.show_image_with_rectangle(screenshot1, (x1, y1), (x1+10, y1+10))
-        else:
-            print("采购图标未识别到，跳过标记展示")
+        (x1, y1), conf1 = market_detector.find_icon(screenshot1)  
         tapscreen_tool.tap_screen(x1, y1)
         if not _sleep(3): return
 

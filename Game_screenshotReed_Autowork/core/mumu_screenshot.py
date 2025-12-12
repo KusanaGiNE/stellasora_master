@@ -4,7 +4,7 @@ import numpy as np
 import os
 from pathlib import Path
 
-from .config import get_adb_path, get_default_instance, resolve_path
+from .config import get_adb_path, get_default_instance, resolve_path, get_adb_port
 
 class MumuScreenshot:
     def __init__(self, adb_path=None, default_instance=None):
@@ -18,10 +18,7 @@ class MumuScreenshot:
         if not adb_path.exists():
             raise RuntimeError(f"指定的 ADB 工具不存在: {adb_path}")
 
-        port_base = self._default_instance_override
-        if port_base is None:
-            port_base = get_default_instance()
-        port = 7554 + (instance_num if instance_num is not None else port_base)
+        port = get_adb_port()
         
         try:
             subprocess.run(

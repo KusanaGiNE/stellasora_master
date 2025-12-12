@@ -3,6 +3,7 @@ import io
 import sys
 import base64
 import time
+import subprocess
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file
 import cv2
@@ -71,7 +72,13 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         elif task_type == 'dailytasks':
             dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'tower_climbing':
-            towerclimber_tool.run(attribute_type=kwargs.get('attribute_type'), stop_event=stop_event, sleep_fn=_interruptible_sleep)
+            towerclimber_tool.run(
+                attribute_type=kwargs.get('attribute_type'),
+                max_runs=kwargs.get('max_runs', 0),
+                stop_on_weekly=kwargs.get('stop_on_weekly', False),
+                stop_event=stop_event,
+                sleep_fn=_interruptible_sleep
+            )
         elif task_type == 'combo':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
             if not stop_event.is_set():
@@ -112,6 +119,8 @@ def task_start():
     data = request.get_json(silent=True) or {}
     task_type = data.get('type')
     attribute_type = data.get('attribute_type')
+    max_runs = data.get('max_runs', 0)
+    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}")
 
     if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
@@ -127,6 +136,9 @@ def task_start():
         kwargs = {}
         if task_type == 'tower_climbing':
             kwargs['attribute_type'] = attribute_type
+            kwargs['max_runs'] = max_runs
+            # 默认开启周常检测
+            kwargs['stop_on_weekly'] = True
 
         _task_thread = Thread(target=_run_task, args=(task_type, _task_stop_event), kwargs=kwargs, daemon=True)
         _task_thread.start()
@@ -302,8 +314,43 @@ def config_endpoint():
         updated = update_config(payload)
         return jsonify({'ok': True, 'config': updated})
     except Exception as exc:
-        logger.exception('配置接口处理失败')
+        # logger.exception('配置接口处理失败') # logger not defined in this scope based on previous reads, using print
+        print('配置接口处理失败:', exc)
         return jsonify({'ok': False, 'error': str(exc)}), 500
+
+@app.route('/config/test_adb', methods=['POST'])
+def test_adb_connection():
+    data = request.get_json(silent=True) or {}
+    adb_path_str = data.get('adb_path')
+    adb_port = data.get('adb_port')
+    
+    if not adb_path_str:
+        return jsonify({'ok': False, 'error': 'ADB路径为空'}), 400
+        
+    if not os.path.exists(adb_path_str):
+         return jsonify({'ok': False, 'error': f'文件不存在: {adb_path_str}'}), 400
+
+    try:
+        # 1. Connect
+        cmd_connect = f'"{adb_path_str}" connect 127.0.0.1:{adb_port}'
+        # Windows usually uses gbk for console output
+        proc_connect = subprocess.run(cmd_connect, shell=True, capture_output=True, text=True, encoding='gbk', errors='ignore')
+        
+        # 2. Check devices
+        cmd_devices = f'"{adb_path_str}" devices'
+        proc_devices = subprocess.run(cmd_devices, shell=True, capture_output=True, text=True, encoding='gbk', errors='ignore')
+        
+        output = (proc_connect.stdout or '') + "\n" + (proc_devices.stdout or '')
+        
+        # Check if connected
+        target = f"127.0.0.1:{adb_port}"
+        if target in (proc_devices.stdout or '') and "\tdevice" in (proc_devices.stdout or ''):
+             return jsonify({'ok': True, 'message': '连接成功', 'detail': output})
+        else:
+             return jsonify({'ok': False, 'error': '连接失败或未授权', 'detail': output})
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':
