@@ -4,6 +4,7 @@ import subprocess
 import cv2
 import numpy as np
 import os
+import sys
 import time
 
 from pathlib import Path
@@ -23,7 +24,14 @@ class TowerClimber:
         self.ocr_tool = OcrTool()
         self.slide_tool = Slide()
 
-        tpl_dir = os.path.join(os.path.dirname(__file__), "../templates")
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+            tpl_dir = os.path.join(base_path, "templates")
+        else:
+            tpl_dir = os.path.join(os.path.dirname(__file__), "../templates")
+        
+        tpl_dir = os.path.abspath(tpl_dir)
+
         def _load(subpath):
             return IconDetector(os.path.join(tpl_dir, subpath))
 

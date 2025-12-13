@@ -1,6 +1,7 @@
 # filepath: d:\Python-Autogamg\Game_screenshotReed_Autowork\core\start_icon_detector.py
 import cv2
 import os
+import numpy as np
 
 class IconDetector:
     def __init__(self, template_path=None):
@@ -24,7 +25,8 @@ class IconDetector:
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"模板图片不存在: {template_path}")
             
-        self.template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+        # 使用 imdecode + fromfile 支持中文路径
+        self.template = cv2.imdecode(np.fromfile(template_path, dtype=np.uint8), cv2.IMREAD_COLOR)
         if self.template is None:
             raise ValueError(f"无法加载模板图片: {template_path}")
         

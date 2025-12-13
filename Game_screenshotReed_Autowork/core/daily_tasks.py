@@ -2,6 +2,7 @@ import subprocess
 import cv2
 import numpy as np
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -44,7 +45,14 @@ class Dailytasks:
         self.slide_tool = Slide()
 
         # 预加载所有图标检测器，避免每次运行任务时重复加载
-        tpl_dir = os.path.join(os.path.dirname(__file__), "../templates")
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+            tpl_dir = os.path.join(base_path, "templates")
+        else:
+            tpl_dir = os.path.join(os.path.dirname(__file__), "../templates")
+        
+        tpl_dir = os.path.abspath(tpl_dir)
+
         def _load(subpath):
             return IconDetector(os.path.join(tpl_dir, subpath))
 
