@@ -113,7 +113,7 @@
             繁中
           </label>
         </div>
-        <p class="hint">切换语言后，将在下次任务启动时生效（部分组件可能需要重启应用）。</p>
+        <p class="hint">切换语言后，将在下次重启脚本时生效。</p>
 
         <div class="settings-actions">
           <button type="button" class="secondary-btn" @click="testConnection" :disabled="testingConnection || savingSettings">
