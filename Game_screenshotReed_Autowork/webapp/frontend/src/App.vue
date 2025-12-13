@@ -338,6 +338,7 @@ export default {
         } 
         this.settings.adb_path = data.config?.adb_path || ''
         this.settings.adb_port = data.config?.adb_port || 16384
+        this.settings.server_lang = data.config?.server_lang || 'zh-CN'
         this.configStatus = ''
       } catch (e) {
         this.configStatus = `读取配置失败: ${e.message}`
@@ -357,7 +358,8 @@ export default {
           },
           body: JSON.stringify({ 
             adb_path: this.settings.adb_path || '',
-            adb_port: this.settings.adb_port || 16384
+            adb_port: this.settings.adb_port || 16384,
+            server_lang: this.settings.server_lang || 'zh-CN'
           })
         })
         const data = await res.json()
@@ -365,6 +367,7 @@ export default {
           throw new Error(data.error || '保存失败')
         }
         this.settings.adb_path = data.config?.adb_path || ''
+        this.settings.server_lang = data.config?.server_lang || 'zh-CN'
         this.settings.adb_port = data.config?.adb_port || 16384
         this.configStatus = '保存成功'
         this.configStatusType = 'success'
