@@ -102,7 +102,7 @@
         />
         <p class="hint">MuMu模拟器默认端口通常为 7555 或 16384，请根据实际情况填写。</p>
 
-        <label>服务器语言 (Server Language)</label>
+        <label>服务器语言</label>
         <div class="radio-group">
           <label>
             <input type="radio" v-model="settings.server_lang" value="zh-CN">
