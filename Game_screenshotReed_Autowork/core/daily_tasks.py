@@ -11,6 +11,7 @@ from .start_icon_detector import IconDetector
 from .mumu_click import Tapscreen
 from .show_detector import Showdetector
 from .slide import Slide
+from .config import get_config
 
 
 class Dailytasks:
@@ -45,11 +46,15 @@ class Dailytasks:
         self.slide_tool = Slide()
 
         # 预加载所有图标检测器，避免每次运行任务时重复加载
+        config = get_config()
+        lang = config.get("server_lang", "zh-CN")
+        folder_name = f"templates_{lang}"
+
         if getattr(sys, 'frozen', False):
             base_path = sys._MEIPASS
-            tpl_dir = os.path.join(base_path, "templates")
+            tpl_dir = os.path.join(base_path, folder_name)
         else:
-            tpl_dir = os.path.join(os.path.dirname(__file__), "../templates")
+            tpl_dir = os.path.join(os.path.dirname(__file__), f"../{folder_name}")
         
         tpl_dir = os.path.abspath(tpl_dir)
 

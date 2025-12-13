@@ -41,9 +41,13 @@ core_dir = PROJECT_ROOT / "core"
 if core_dir.exists():
     DATAS.append(_data_entry(core_dir, "core"))
 
-templates_root = PROJECT_ROOT / "templates"
-if templates_root.exists():
-    DATAS.append(_data_entry(templates_root, "templates"))
+templates_zh_cn = PROJECT_ROOT / "templates_zh-CN"
+if templates_zh_cn.exists():
+    DATAS.append(_data_entry(templates_zh_cn, "templates_zh-CN"))
+
+templates_zh_hant = PROJECT_ROOT / "templates_zh-Hant"
+if templates_zh_hant.exists():
+    DATAS.append(_data_entry(templates_zh_hant, "templates_zh-Hant"))
 
 # Optional additional assets (frontend public files, etc.)
 frontend_public = PROJECT_ROOT / "webapp" / "frontend" / "public"

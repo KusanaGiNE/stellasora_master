@@ -16,6 +16,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "adb_path": "",
     "default_instance": 1,
     "adb_port": 16384,
+    "server_lang": "zh-CN",  # zh-CN or zh-Hant
 }
 
 _CONFIG_CACHE: Dict[str, Any] | None = None

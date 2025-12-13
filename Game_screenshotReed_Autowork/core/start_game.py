@@ -4,9 +4,10 @@ import numpy as np
 import os
 import time
 from pathlib import Path
-
+import sys
 
 from core import MumuScreenshot, IconDetector, Tapscreen, Showdetector
+from .config import get_config
 
 
 class StartGame:
@@ -32,12 +33,24 @@ class StartGame:
                 time.sleep(min(0.2, end - time.time()))
             return True
 
+        config = get_config()
+        lang = config.get("server_lang", "zh-CN")
+        folder_name = f"templates_{lang}"
+
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+            tpl_dir = os.path.join(base_path, folder_name)
+        else:
+            tpl_dir = os.path.join(os.path.dirname(__file__), f"../{folder_name}")
+        
+        tpl_dir = os.path.abspath(tpl_dir)
+
         # 识别游戏图标
-        gameicon_template_path = os.path.join(os.path.dirname(__file__), "../templates/gamestart/button_template.png")
+        gameicon_template_path = os.path.join(tpl_dir, "gamestart/button_template.png")
         gameicon_detector = IconDetector(gameicon_template_path)
-        game_loding_template_path = os.path.join(os.path.dirname(__file__), "../templates/gamestart/game_loading.png")
+        game_loding_template_path = os.path.join(tpl_dir, "gamestart/game_loading.png")
         gameloding_detector = IconDetector(game_loding_template_path)
-        maintitle_chake = os.path.join(os.path.dirname(__file__), "../templates/mainTitle_icon/Market.png")
+        maintitle_chake = os.path.join(tpl_dir, "mainTitle_icon/Market.png")
         maintitle_detector = IconDetector(maintitle_chake)
 
         if stop_event and stop_event.is_set():

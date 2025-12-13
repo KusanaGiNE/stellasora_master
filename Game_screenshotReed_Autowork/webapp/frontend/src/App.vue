@@ -102,6 +102,19 @@
         />
         <p class="hint">MuMu模拟器默认端口通常为 7555 或 16384，请根据实际情况填写。</p>
 
+        <label>服务器语言 (Server Language)</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" v-model="settings.server_lang" value="zh-CN">
+            简中
+          </label>
+          <label>
+            <input type="radio" v-model="settings.server_lang" value="zh-Hant">
+            繁中
+          </label>
+        </div>
+        <p class="hint">切换语言后，将在下次任务启动时生效（部分组件可能需要重启应用）。</p>
+
         <div class="settings-actions">
           <button type="button" class="secondary-btn" @click="testConnection" :disabled="testingConnection || savingSettings">
             {{ testingConnection ? '测试中...' : '测试连接' }}
@@ -139,7 +152,8 @@ export default {
       _statusPoller: null,
       settings: {
         adb_path: '',
-        adb_port: 16384
+        adb_port: 16384,
+        server_lang: 'zh-CN'
       },
       savingSettings: false,
       testingConnection: false,

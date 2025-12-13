@@ -1,5 +1,6 @@
 {
   "adb_path": "D:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
   "default_instance": 1,
-  "adb_port": 16384
+  "adb_port": 16384,
+  "server_lang": "zh-CN"
 }
