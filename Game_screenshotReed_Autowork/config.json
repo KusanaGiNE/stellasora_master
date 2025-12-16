@@ -1,5 +1,5 @@
 {
-  "adb_path": "D:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
+  "adb_path": "E:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
   "default_instance": 1,
   "adb_port": 16384,
   "server_lang": "zh-CN",
@@ -14,7 +14,7 @@
       "port": 5555
     },
     "MuMu12": {
-      "path": "D:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
+      "path": "E:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
       "port": 16384
     }
   }
