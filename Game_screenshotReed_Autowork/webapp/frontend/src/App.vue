@@ -84,6 +84,13 @@
 
     <section v-else class="tab-content settings-panel">
       <form class="settings-form" @submit.prevent="saveConfig">
+        <label for="emulatorType">模拟器类型</label>
+        <select id="emulatorType" v-model="settings.emulator_type">
+          <option v-for="type in emulatorTypes" :key="type.value" :value="type.value">
+            {{ type.label }}
+          </option>
+        </select>
+
         <label for="adbPath">ADB 路径</label>
         <input
           id="adbPath"
@@ -91,7 +98,7 @@
           v-model="settings.adb_path"
           placeholder="例如 D:\Program Files\Netease\MuMu Player 12\shell\adb.exe"
         />
-        <p class="hint">可填写绝对路径或相对于 exe 所在目录的相对路径。</p>
+        <p class="hint">填写对应模拟器目录下的adb.exe地址：MuMu一般位于shell文件夹下，雷电位于根目录。</p>
 
         <label for="adbPort">ADB 端口号</label>
         <input
@@ -100,7 +107,7 @@
           v-model.number="settings.adb_port"
           placeholder="例如 16384"
         />
-        <p class="hint">MuMu模拟器默认端口通常为 7555 或 16384，请根据实际情况填写。</p>
+        <p class="hint">常见端口: 雷电(5555), MuMu12(16384)</p>
 
         <label>服务器语言</label>
         <div class="radio-group">
@@ -150,10 +157,17 @@ export default {
       lastLogIndex: 0,
       _poller: null,
       _statusPoller: null,
+      emulatorTypes: [
+        { label: '雷电模拟器 (LDPlayer)', value: 'LDPlayer', defaultPort: 5555 },
+        { label: 'MuMu模拟器 12', value: 'MuMu12', defaultPort: 16384 },
+        { label: '自定义', value: 'Custom', defaultPort: 5555 },
+      ],
       settings: {
         adb_path: '',
         adb_port: 16384,
-        server_lang: 'zh-CN'
+        server_lang: 'zh-CN',
+        emulator_type: 'Custom',
+        emulator_configs: {}
       },
       savingSettings: false,
       testingConnection: false,
@@ -192,6 +206,26 @@ export default {
       if (newVal === 'settings') {
         this.fetchConfig()
       }
+    },
+    'settings.emulator_type': function(newVal, oldVal) {
+      if (!newVal) return
+      // Save old config
+      if (oldVal && this.settings.emulator_configs) {
+        this.settings.emulator_configs[oldVal] = {
+          path: this.settings.adb_path,
+          port: this.settings.adb_port
+        }
+      }
+      // Load new config
+      if (!this.settings.emulator_configs) this.settings.emulator_configs = {}
+      const config = this.settings.emulator_configs[newVal]
+      if (config) {
+        this.settings.adb_path = config.path || ''
+        this.settings.adb_port = config.port || this.getEmulatorDefaultPort(newVal)
+      } else {
+        this.settings.adb_path = ''
+        this.settings.adb_port = this.getEmulatorDefaultPort(newVal)
+      }
     }
   },
   methods: {
@@ -205,6 +239,11 @@ export default {
     async handleFetch(path, opts) {
       const res = await fetch(this.apiUrl(path), opts)
       return res.json()
+    },
+
+    getEmulatorDefaultPort(type) {
+      const found = this.emulatorTypes.find(t => t.value === type)
+      return found ? found.defaultPort : 5555
     },
 
     taskTypeSelected() {
@@ -339,6 +378,8 @@ export default {
         this.settings.adb_path = data.config?.adb_path || ''
         this.settings.adb_port = data.config?.adb_port || 16384
         this.settings.server_lang = data.config?.server_lang || 'zh-CN'
+        this.settings.emulator_configs = data.config?.emulator_configs || {}
+        this.settings.emulator_type = data.config?.emulator_type || 'Custom'
         this.configStatus = ''
       } catch (e) {
         this.configStatus = `读取配置失败: ${e.message}`
@@ -351,6 +392,15 @@ export default {
       this.configStatus = '保存中...'
       this.configStatusType = 'info'
       try {
+        // Update current emulator config before saving
+        if (this.settings.emulator_type) {
+          if (!this.settings.emulator_configs) this.settings.emulator_configs = {}
+          this.settings.emulator_configs[this.settings.emulator_type] = {
+            path: this.settings.adb_path,
+            port: this.settings.adb_port
+          }
+        }
+
         const res = await fetch(this.apiUrl('/config'), {
           method: 'POST',
           headers: {
@@ -359,7 +409,9 @@ export default {
           body: JSON.stringify({ 
             adb_path: this.settings.adb_path || '',
             adb_port: this.settings.adb_port || 16384,
-            server_lang: this.settings.server_lang || 'zh-CN'
+            server_lang: this.settings.server_lang || 'zh-CN',
+            emulator_type: this.settings.emulator_type,
+            emulator_configs: this.settings.emulator_configs
           })
         })
         const data = await res.json()
@@ -369,6 +421,8 @@ export default {
         this.settings.adb_path = data.config?.adb_path || ''
         this.settings.server_lang = data.config?.server_lang || 'zh-CN'
         this.settings.adb_port = data.config?.adb_port || 16384
+        this.settings.emulator_type = data.config?.emulator_type || 'Custom'
+        this.settings.emulator_configs = data.config?.emulator_configs || {}
         this.configStatus = '保存成功'
         this.configStatusType = 'success'
       } catch (e) {
@@ -645,7 +699,8 @@ body {
   gap: 0.75rem;
 }
 
-.settings-form input {
+.settings-form input,
+.settings-form select {
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.2);

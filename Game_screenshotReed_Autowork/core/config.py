@@ -17,6 +17,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "default_instance": 1,
     "adb_port": 16384,
     "server_lang": "zh-CN",  # zh-CN or zh-Hant
+    "emulator_type": "MuMu12",
+    "emulator_configs": {},
 }
 
 _CONFIG_CACHE: Dict[str, Any] | None = None

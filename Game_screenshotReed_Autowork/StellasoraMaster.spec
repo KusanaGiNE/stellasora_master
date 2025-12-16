@@ -4,14 +4,23 @@
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
-SPEC_PATH = Path(sys.argv[0]).resolve()
-PROJECT_ROOT = SPEC_PATH.parent
+# Robustly find the project root by locating the .spec file in arguments
+PROJECT_ROOT = None
+for arg in sys.argv:
+    if arg.endswith(".spec"):
+        PROJECT_ROOT = Path(arg).resolve().parent
+        break
+
+if PROJECT_ROOT is None:
+    # Fallback for development/debugging
+    PROJECT_ROOT = Path(os.getcwd()).resolve() / "Game_screenshotReed_Autowork"
 
 # Include dynamically imported dependencies (e.g. cv2 modules)
 hiddenimports = collect_submodules("cv2") + [
@@ -58,6 +67,10 @@ config_file = PROJECT_ROOT / "config.json"
 if config_file.exists():
     DATAS.append(_data_entry(config_file, "."))
 
+# Check for custom icon
+icon_path = PROJECT_ROOT / "icon.ico"
+if not icon_path.exists():
+    icon_path = None
 
 a = Analysis(
     [str(PROJECT_ROOT / "run_app.py")],
@@ -97,6 +110,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(icon_path) if icon_path else None,
 )
 
 coll = COLLECT(
