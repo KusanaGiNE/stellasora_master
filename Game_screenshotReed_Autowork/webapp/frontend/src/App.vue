@@ -28,15 +28,22 @@
                 <input type="checkbox" v-model="tasks.dailytasks">
                 日常任务流程
               </label>
-              <label>
+              <label class="label-with-tooltip">
                 <input type="checkbox" v-model="tasks.towerClimbing">
                 自动爬塔
+                
               </label>
               <div v-if="tasks.towerClimbing" class="sub-options">
                  <div class="tower-attrs">
                    <label><input type="radio" v-model="towerAttribute" value="light_earth"> 光/地</label>
                    <label><input type="radio" v-model="towerAttribute" value="water_wind"> 水/风</label>
                    <label><input type="radio" v-model="towerAttribute" value="fire_dark"> 火/暗</label>
+                 </div>
+                 <div class="climb-type">
+                   <label><input type="radio" v-model="towerClimbType" value="quick"> 快速</label>
+                   <label><input type="radio" v-model="towerClimbType" value="standard"> 标准</label>
+                   <span class="info-icon" data-tooltip="快速：跳过购买和强化。消耗更少时间&#10;标准：完整流程->购买、强化。消耗更少的票">ⓘ</span>
+                   
                  </div>
                  <div class="tower-settings">
                    <label class="input-label">
@@ -152,6 +159,7 @@ export default {
         towerClimbing: false
       },
       towerAttribute: 'light_earth',
+      towerClimbType: 'standard',
       towerMaxRuns: 0,
       logs: [],
       lastLogIndex: 0,
@@ -262,6 +270,7 @@ export default {
         const payload = { type }
         if (type === 'tower_climbing' || type === 'daily_and_tower') {
           payload.attribute_type = this.towerAttribute
+          payload.climb_type = this.towerClimbType
           payload.max_runs = this.towerMaxRuns
         }
         const res = await fetch(this.apiUrl('/task/start'), {
@@ -738,6 +747,59 @@ body {
 
 .status-message.info {
   color: #f9e79f;
+}
+
+/* --- 新增 Tooltip 样式 --- */
+.label-with-tooltip {
+  display: flex !important; /* 覆盖默认的 block */
+  align-items: center;
+}
+
+.info-icon {
+  margin-left: 8px;
+  cursor: help;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  position: relative; /* 关键：作为定位基准 */
+}
+
+.info-icon:hover {
+  color: #fff;
+}
+
+/* 提示框主体 */
+.info-icon::after {
+  content: attr(data-tooltip); /* 读取 HTML 中的文字 */
+  position: absolute;
+  bottom: 100%; /* 显示在上方 */
+  left: 50%;
+  transform: translateX(-50%) translateY(-5px);
+  
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre; /* 允许换行 */
+  z-index: 1000;
+  pointer-events: none;
+  
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, transform 0.2s;
+  width: max-content;
+  max-width: 250px;
+  text-align: left;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+/* 悬停时显示 */
+.info-icon:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(-10px);
 }
 
 @media (max-width: 960px) {

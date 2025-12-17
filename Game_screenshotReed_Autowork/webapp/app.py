@@ -76,6 +76,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
                 attribute_type=kwargs.get('attribute_type'),
                 max_runs=kwargs.get('max_runs', 0),
                 stop_on_weekly=kwargs.get('stop_on_weekly', False),
+                climb_type=kwargs.get('climb_type'),
                 stop_event=stop_event,
                 sleep_fn=_interruptible_sleep
             )
@@ -90,6 +91,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
                     attribute_type=kwargs.get('attribute_type'),
                     max_runs=kwargs.get('max_runs', 0),
                     stop_on_weekly=kwargs.get('stop_on_weekly', False),
+                    climb_type=kwargs.get('climb_type'),
                     stop_event=stop_event,
                     sleep_fn=_interruptible_sleep
                 )
@@ -130,7 +132,8 @@ def task_start():
     task_type = data.get('type')
     attribute_type = data.get('attribute_type')
     max_runs = data.get('max_runs', 0)
-    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}")
+    climb_type = data.get('climb_type')
+    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}")
 
     if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing', 'daily_and_tower'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
@@ -147,6 +150,7 @@ def task_start():
         if task_type in ('tower_climbing', 'daily_and_tower'):
             kwargs['attribute_type'] = attribute_type
             kwargs['max_runs'] = max_runs
+            kwargs['climb_type'] = climb_type
             # 默认开启周常检测
             kwargs['stop_on_weekly'] = True
 
