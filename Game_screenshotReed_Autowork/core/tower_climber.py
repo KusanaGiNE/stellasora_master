@@ -38,6 +38,7 @@ class TowerClimber:
         def _load(subpath):
             return IconDetector(os.path.join(tpl_dir, subpath))
 
+        # region图标识别器预加载
         self.maintitle_detector = _load("mainTitle_icon/Market.png")
         self.market_detector = _load("mainTitle_icon/Purchasing.png")
         self.tower_detector = _load("tower_climber/tower.png")
@@ -48,6 +49,7 @@ class TowerClimber:
         self.skipshopping_detector = _load("tower_climber/skipshopping.png") #跳过购买检测器
         self.quittower_detector = _load("tower_climber/quittower.png") #退出爬塔检测器
         self.formationpagecheak_detector = _load("tower_climber/formationpagecheak.png") #编成页面检测器 
+        self.cancel_detector = _load("tower_climber/cancel.png") #取消按钮检测器
         self.savepagecheak_detector = _load("tower_climber/delete.png") #保存页面检测器
         self.quickclimb_detector = _load("tower_climber/quickclimb.png") #快速爬塔检测器
         self.giveupticket_detector = _load("tower_climber/giveup.png") #检测是否有未完成的爬塔记录
@@ -56,7 +58,7 @@ class TowerClimber:
         self.buypagecheak_detector = _load("tower_climber/buypagecheak.png") #购买页面检测器
         self.islocked_detector = _load("tower_climber/islocked.png") #检测是否锁定
 
-    # [新增] 查找截图中所有匹配图标的坐标 (去重)
+    
     def find_multi_icons(self, screenshot, detector, threshold=0.85, min_dist=30):
         """
         在截图中查找所有匹配的图标
@@ -120,7 +122,7 @@ class TowerClimber:
         ocr_tool = self.ocr_tool
         slide_tool = self.slide_tool
 
-        # 使用预加载的检测器
+        # region用预加载的检测器
         maintitle_detector = self.maintitle_detector
         market_detector = self.market_detector
         recommend_detector = self.recommend_detector
@@ -137,6 +139,7 @@ class TowerClimber:
         buy_detector = self.buy_detector
         buypagecheak_detector = self.buypagecheak_detector
         islocked_detector = self.islocked_detector
+        cancel_detector = self.cancel_detector
         
 
         def _sleep(sec):
@@ -182,7 +185,7 @@ class TowerClimber:
         if not Back2maintitle(): return
         if not _sleep(2): return
 
-        #出发爬塔
+        #region出发爬塔
         tapscreen_tool.tap_screen(1158, 637)
         if not _sleep(3): return
         screenshot = screenshot_tool.capture()
@@ -220,10 +223,10 @@ class TowerClimber:
             # 由于不知道具体界面布局，这里假设在当前界面可以检查，或者在每次战斗前检查
             if stop_on_weekly:
                 progress = check_weekly_progress()
-                if progress >= 3001:
+                if progress >= 3000:
                     print("周常任务已完成，结束任务")
                     break
-            #选择属性
+            #region选择属性
 
             if attribute_type == 'light_earth':
                 tapscreen_tool.tap_screen(288, 139)
@@ -247,7 +250,7 @@ class TowerClimber:
 
             print(f"=== 开始第 {run_count + 1} 次爬塔 ===")
             
-            # 开始爬塔流程
+            # region开始爬塔流程
             screenshot = screenshot_tool.capture()
             (x_quick, y_quick), conf_quick = quickclimb_detector.find_icon(screenshot)
             if x_quick is None:
@@ -265,20 +268,27 @@ class TowerClimber:
             print("进入编成页面")
 
             tapscreen_tool.tap_screen(954, 666)  # 旅人自动编成
-            if not _sleep(1): return
-            tapscreen_tool.tap_screen(771, 505)  
-            if not _sleep(3): return
+            if not _sleep(2): return
+            
+            screenshot = screenshot_tool.capture()
+            (x_cancel, y_cancel), conf_cancel = cancel_detector.find_icon(screenshot)
+            if x_cancel is not None:
+                tapscreen_tool.tap_screen(x_cancel, y_cancel)  # 点击取消
+                if not _sleep(2): return
             tapscreen_tool.tap_screen(1158, 662)  #下一步
             if not _sleep(3): return
             tapscreen_tool.tap_screen(954, 666)  # 秘纹自动编成
-            if not _sleep(1): return
-            tapscreen_tool.tap_screen(771, 505)  
-            if not _sleep(3): return
+            if not _sleep(2): return
+            screenshot = screenshot_tool.capture()
+            (x_cancel, y_cancel), conf_cancel = cancel_detector.find_icon(screenshot)
+            if x_cancel is not None:
+                tapscreen_tool.tap_screen(x_cancel, y_cancel)  # 点击取消
+                if not _sleep(2): return
             tapscreen_tool.tap_screen(1158, 662)  #开始战斗
             if not _sleep(3): return
 
 
-            #爬塔主体逻辑
+            #region爬塔主体逻辑
             while True:
 
                 if stop_event and stop_event.is_set():
