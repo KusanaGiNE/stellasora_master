@@ -96,12 +96,14 @@ class Dailytasks:
         return changed_ratio <= change_ratio
 
     
-    def run(self, stop_event=None, sleep_fn=None):
+    def run(self, stop_event=None, sleep_fn=None, selected_tasks=None):
         screenshot_tool = self.screenshot_tool
         tapscreen_tool = self.tapscreen_tool
         display_tool = self.display_tool
         slide_tool = self.slide_tool
         
+        if selected_tasks is None:
+            selected_tasks = ['interaction', 'market_reward', 'commission', 'gift', 'card_upgrade', 'character_upgrade', 'task_reward']
         
         # 使用预加载的检测器
         maintitle_detector = self.maintitle_detector
@@ -145,250 +147,257 @@ class Dailytasks:
         # ================== 开始执行日常任务各步骤 ==================
 
         
-        # 主页面角色互动
-        tapscreen_tool.tap_screen(646, 409)
-        if not _sleep(3): return
-        tapscreen_tool.tap_screen(646, 409)
-        if not _sleep(3): return
-        tapscreen_tool.tap_screen(646, 409)
-        print("主页面角色互动完成")
-        if not _sleep(2): return
-        print("开始执行领取商店随机奖励")
+        # region主页面角色互动
+        if 'interaction' in selected_tasks:
+            tapscreen_tool.tap_screen(646, 409)
+            if not _sleep(3): return
+            tapscreen_tool.tap_screen(646, 409)
+            if not _sleep(3): return
+            tapscreen_tool.tap_screen(646, 409)
+            print("主页面角色互动完成")
+            if not _sleep(2): return
 
-        # 领取商店随机奖励
-        screenshot1 = screenshot_tool.capture()
-        (x1, y1), conf1 = market_detector.find_icon(screenshot1)  
-        tapscreen_tool.tap_screen(x1, y1)
-        if not _sleep(3): return
+        # region领取商店随机奖励
+        if 'market_reward' in selected_tasks:
+            print("开始执行领取商店随机奖励")
+            screenshot1 = screenshot_tool.capture()
+            (x1, y1), conf1 = market_detector.find_icon(screenshot1)  
+            tapscreen_tool.tap_screen(x1, y1)
+            if not _sleep(3): return
 
-        # 检测是否已经处于采购界面
-        screenshot1 = screenshot_tool.capture()
-        (x2, y2), conf2 = marketpagecheak_detector.find_icon(screenshot1)
-        while x2 is None:
-            if stop_event and stop_event.is_set(): return
-            print("正在等待进入采购界面...")
-            if not _sleep(1): return
+            # 检测是否已经处于采购界面
             screenshot1 = screenshot_tool.capture()
             (x2, y2), conf2 = marketpagecheak_detector.find_icon(screenshot1)
-
-        # 点击领取随机奖励
-        tapscreen_tool.tap_screen(73, 636)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(73, 636)
-        if not _sleep(1): return
-        print("领取商店随机奖励完成")
-
-        # 返回主页面
-        if not Back2maintitle(): return
-        if not _sleep(2): return
-
-        # 委托派遣
-        print("开始执行委托派遣")
-        screenshot1 = screenshot_tool.capture()
-        (x4, y4), conf2 = commission_detector.find_icon(screenshot1)
-        tapscreen_tool.tap_screen(x4, y4)
-        if not _sleep(3): return
-        screenshot1 = screenshot_tool.capture()
-        (x5, y5), conf2 = commissionpagecheak_detector.find_icon(screenshot1)
-        while x5 is None:
-            if stop_event and stop_event.is_set(): return
-            tapscreen_tool.tap_screen(x4, y4)
-            if not _sleep(1): return
-            screenshot1 = screenshot_tool.capture()
-            (x5, y5), conf2 = commissionpagecheak_detector.find_icon(screenshot1)
-
-        screenshot1 = screenshot_tool.capture()
-        (xa, ya), conf2 = iscommission_detector.find_icon(screenshot1)
-        if xa:
-            print("已进入委托派遣界面")
-            tapscreen_tool.tap_screen(1161, 632)
-            if not _sleep(4): return
-            tapscreen_tool.tap_screen(1161, 632)
-            if not _sleep(1): return
-            tapscreen_tool.tap_screen(68, 49)
-            # 一键再次派遣
-            screenshot1 = screenshot_tool.capture()
-            (x6, y6), conf2 = commissionagain_detector.find_icon(screenshot1)
-            while x6 is None:
+            while x2 is None:
                 if stop_event and stop_event.is_set(): return
-                tapscreen_tool.tap_screen(68, 49)
+                print("正在等待进入采购界面...")
                 if not _sleep(1): return
                 screenshot1 = screenshot_tool.capture()
+                (x2, y2), conf2 = marketpagecheak_detector.find_icon(screenshot1)
+
+            # 点击领取随机奖励
+            tapscreen_tool.tap_screen(73, 636)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(73, 636)
+            if not _sleep(1): return
+            print("领取商店随机奖励完成")
+
+            # 返回主页面
+            if not Back2maintitle(): return
+            if not _sleep(2): return
+
+        # region委托派遣
+        if 'commission' in selected_tasks:
+            print("开始执行委托派遣")
+            screenshot1 = screenshot_tool.capture()
+            (x4, y4), conf2 = commission_detector.find_icon(screenshot1)
+            tapscreen_tool.tap_screen(x4, y4)
+            if not _sleep(3): return
+            screenshot1 = screenshot_tool.capture()
+            (x5, y5), conf2 = commissionpagecheak_detector.find_icon(screenshot1)
+            while x5 is None:
+                if stop_event and stop_event.is_set(): return
+                tapscreen_tool.tap_screen(x4, y4)
+                if not _sleep(1): return
+                screenshot1 = screenshot_tool.capture()
+                (x5, y5), conf2 = commissionpagecheak_detector.find_icon(screenshot1)
+
+            screenshot1 = screenshot_tool.capture()
+            (xa, ya), conf2 = iscommission_detector.find_icon(screenshot1)
+            if xa:
+                print("已进入委托派遣界面")
+                tapscreen_tool.tap_screen(1161, 632)
+                if not _sleep(4): return
+                tapscreen_tool.tap_screen(1161, 632)
+                if not _sleep(1): return
+                tapscreen_tool.tap_screen(68, 49)
+                # 一键再次派遣
+                screenshot1 = screenshot_tool.capture()
                 (x6, y6), conf2 = commissionagain_detector.find_icon(screenshot1)
-            tapscreen_tool.tap_screen(x6, y6)
-            if not _sleep(1): return
-            if not Back2maintitle(): return
-        else:
-            print("委托任务未完成或没有开始委托")
-            if not Back2maintitle(): return
+                while x6 is None:
+                    if stop_event and stop_event.is_set(): return
+                    tapscreen_tool.tap_screen(68, 49)
+                    if not _sleep(1): return
+                    screenshot1 = screenshot_tool.capture()
+                    (x6, y6), conf2 = commissionagain_detector.find_icon(screenshot1)
+                tapscreen_tool.tap_screen(x6, y6)
+                if not _sleep(1): return
+                if not Back2maintitle(): return
+            else:
+                print("委托任务未完成或没有开始委托")
+                if not Back2maintitle(): return
 
-        if not _sleep(2): return
+            if not _sleep(2): return
 
-        # 赠送礼物
-        print("开始执行赠送礼物")
-        tapscreen_tool.tap_screen(1044, 123)
-        if not _sleep(3): return
-        screenshot1 = screenshot_tool.capture()
-        (x7, y7), conf2 = giftpagecheak_detector.find_icon(screenshot1)
-        while x7 is None:
-            if stop_event and stop_event.is_set(): return
+        # region赠送礼物
+        if 'gift' in selected_tasks:
+            print("开始执行赠送礼物")
             tapscreen_tool.tap_screen(1044, 123)
-            if not _sleep(1): return
+            if not _sleep(3): return
             screenshot1 = screenshot_tool.capture()
             (x7, y7), conf2 = giftpagecheak_detector.find_icon(screenshot1)
-        print("已进入赠送礼物界面")
-        tapscreen_tool.tap_screen(398, 665)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(398, 665)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(398, 665)
-        tapscreen_tool.tap_screen(690, 321)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(898, 644)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(898, 644)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(898, 644)
-        if not _sleep(1): return
-        # 返回主页面
-        tapscreen_tool.tap_screen(1220, 49)
-        if not _sleep(2): return
-        screenshot1 = screenshot_tool.capture()
-        (x8, y8), conf2 = maintitle_detector.find_icon(screenshot1)
-        while x8 is None:
-            if stop_event and stop_event.is_set(): return
+            while x7 is None:
+                if stop_event and stop_event.is_set(): return
+                tapscreen_tool.tap_screen(1044, 123)
+                if not _sleep(1): return
+                screenshot1 = screenshot_tool.capture()
+                (x7, y7), conf2 = giftpagecheak_detector.find_icon(screenshot1)
+            print("已进入赠送礼物界面")
+            tapscreen_tool.tap_screen(398, 665)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(398, 665)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(398, 665)
+            tapscreen_tool.tap_screen(690, 321)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(898, 644)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(898, 644)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(898, 644)
+            if not _sleep(1): return
+            # 返回主页面
             tapscreen_tool.tap_screen(1220, 49)
             if not _sleep(2): return
             screenshot1 = screenshot_tool.capture()
             (x8, y8), conf2 = maintitle_detector.find_icon(screenshot1)
-        print("返回主界面完成")
+            while x8 is None:
+                if stop_event and stop_event.is_set(): return
+                tapscreen_tool.tap_screen(1220, 49)
+                if not _sleep(2): return
+                screenshot1 = screenshot_tool.capture()
+                (x8, y8), conf2 = maintitle_detector.find_icon(screenshot1)
+            print("返回主界面完成")
 
-        # 秘纹升级
-        print("开始执行秘纹升级")
-        tapscreen_tool.tap_screen(1125, 535)
-        if not _sleep(3): return
-        screenshot1 = screenshot_tool.capture()
-        (x9, y9), conf2 = cardpagecheak_detector.find_icon(screenshot1)
-        while x9 is None:
-            if stop_event and stop_event.is_set(): return
+        # region秘纹升级
+        if 'card_upgrade' in selected_tasks:
+            print("开始执行秘纹升级")
             tapscreen_tool.tap_screen(1125, 535)
-            if not _sleep(1): return
+            if not _sleep(3): return
             screenshot1 = screenshot_tool.capture()
             (x9, y9), conf2 = cardpagecheak_detector.find_icon(screenshot1)
-        print("已进入秘纹升级界面")
-        # 滑动至页面底部
-        screenshot_before_swipe = screenshot1
-        slide_tool.swipe_up(1000)
-        if not _sleep(1): return
-        screenshot_after_swipe = screenshot_tool.capture()
-        # 判断是否已经滑动到页面底部
-        while self.screenshots_almost_same(screenshot_before_swipe, screenshot_after_swipe) is False:
-            print("继续滑动")
-            screenshot_before_swipe = screenshot_after_swipe
-            if stop_event and stop_event.is_set(): return
+            while x9 is None:
+                if stop_event and stop_event.is_set(): return
+                tapscreen_tool.tap_screen(1125, 535)
+                if not _sleep(1): return
+                screenshot1 = screenshot_tool.capture()
+                (x9, y9), conf2 = cardpagecheak_detector.find_icon(screenshot1)
+            print("已进入秘纹升级界面")
+            # 滑动至页面底部
+            screenshot_before_swipe = screenshot1
             slide_tool.swipe_up(1000)
             if not _sleep(1): return
             screenshot_after_swipe = screenshot_tool.capture()
-        print("已滑动至页面底部")
-        if not _sleep(1): return
-        # 选取左下角秘闻进行升级
-        tapscreen_tool.tap_screen(191, 562)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(191, 562)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(191, 562)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(568, 661)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(568, 661)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(568, 661)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(921, 469)
-        if not _sleep(1): return
-        for _ in range(4):
-            tapscreen_tool.tap_screen(1008, 548)
+            # 判断是否已经滑动到页面底部
+            while self.screenshots_almost_same(screenshot_before_swipe, screenshot_after_swipe) is False:
+                print("继续滑动")
+                screenshot_before_swipe = screenshot_after_swipe
+                if stop_event and stop_event.is_set(): return
+                slide_tool.swipe_up(1000)
+                if not _sleep(1): return
+                screenshot_after_swipe = screenshot_tool.capture()
+            print("已滑动至页面底部")
             if not _sleep(1): return
-        print("秘纹升级完成")
-        if not Back2maintitle(): return
-        if not _sleep(2): return
+            # 选取左下角秘闻进行升级
+            tapscreen_tool.tap_screen(191, 562)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(191, 562)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(191, 562)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(568, 661)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(568, 661)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(568, 661)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(921, 469)
+            if not _sleep(1): return
+            for _ in range(4):
+                tapscreen_tool.tap_screen(1008, 548)
+                if not _sleep(1): return
+            print("秘纹升级完成")
+            if not Back2maintitle(): return
+            if not _sleep(2): return
 
-        # 开始执行旅人升级
-        print("开始执行旅人升级")
-        tapscreen_tool.tap_screen(1039, 561)
-        if not _sleep(3): return
-        screenshot1 = screenshot_tool.capture()
-        (x10, y10), conf2 = characterpagecheak_detector.find_icon(screenshot1)
-        while x10 is None:
-            if stop_event and stop_event.is_set(): return
+        # region开始执行旅人升级
+        if 'character_upgrade' in selected_tasks:
+            print("开始执行旅人升级")
             tapscreen_tool.tap_screen(1039, 561)
-            if not _sleep(1): return
+            if not _sleep(3): return
             screenshot1 = screenshot_tool.capture()
             (x10, y10), conf2 = characterpagecheak_detector.find_icon(screenshot1)
-        print("已进入旅人升级界面")
-        # 滑动至页面底部
-        screenshot_before_swipe = screenshot1
-        slide_tool.swipe_up(1000)
-        if not _sleep(1): return
-        screenshot_after_swipe = screenshot_tool.capture()
-        # 判断是否已经滑动到页面底部
-        while self.screenshots_almost_same(screenshot_before_swipe, screenshot_after_swipe) is False:
-            print("继续滑动")
-            screenshot_before_swipe = screenshot_after_swipe
-            if stop_event and stop_event.is_set(): return
+            while x10 is None:
+                if stop_event and stop_event.is_set(): return
+                tapscreen_tool.tap_screen(1039, 561)
+                if not _sleep(1): return
+                screenshot1 = screenshot_tool.capture()
+                (x10, y10), conf2 = characterpagecheak_detector.find_icon(screenshot1)
+            print("已进入旅人升级界面")
+            # 滑动至页面底部
+            screenshot_before_swipe = screenshot1
             slide_tool.swipe_up(1000)
             if not _sleep(1): return
             screenshot_after_swipe = screenshot_tool.capture()
-        print("已滑动至页面底部")
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(173, 551)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(173, 551)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(173, 551)
-        if not _sleep(1): return
-        tapscreen_tool.tap_screen(1110, 522)
-        if not _sleep(1): return
-        screenshot1 = screenshot_tool.capture()
-        (x11, y11), conf2 = characterupgradepagecheak_detector.find_icon(screenshot1)
-        while x11 is None:
-            if stop_event and stop_event.is_set(): return
-            print("旅人升级界面未加载完成，继续点击升级按钮")
+            # 判断是否已经滑动到页面底部
+            while self.screenshots_almost_same(screenshot_before_swipe, screenshot_after_swipe) is False:
+                print("继续滑动")
+                screenshot_before_swipe = screenshot_after_swipe
+                if stop_event and stop_event.is_set(): return
+                slide_tool.swipe_up(1000)
+                if not _sleep(1): return
+                screenshot_after_swipe = screenshot_tool.capture()
+            print("已滑动至页面底部")
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(173, 551)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(173, 551)
+            if not _sleep(1): return
+            tapscreen_tool.tap_screen(173, 551)
             if not _sleep(1): return
             tapscreen_tool.tap_screen(1110, 522)
             if not _sleep(1): return
             screenshot1 = screenshot_tool.capture()
             (x11, y11), conf2 = characterupgradepagecheak_detector.find_icon(screenshot1)
-        tapscreen_tool.tap_screen(x11, y11)
-        if not _sleep(1): return
-        for _ in range(3):
-            tapscreen_tool.tap_screen(1028, 590)
+            while x11 is None:
+                if stop_event and stop_event.is_set(): return
+                print("旅人升级界面未加载完成，继续点击升级按钮")
+                if not _sleep(1): return
+                tapscreen_tool.tap_screen(1110, 522)
+                if not _sleep(1): return
+                screenshot1 = screenshot_tool.capture()
+                (x11, y11), conf2 = characterupgradepagecheak_detector.find_icon(screenshot1)
+            tapscreen_tool.tap_screen(x11, y11)
             if not _sleep(1): return
-        print("旅人升级完成")
-        if not Back2maintitle(): return
-        if not _sleep(2): return
+            for _ in range(3):
+                tapscreen_tool.tap_screen(1028, 590)
+                if not _sleep(1): return
+            print("旅人升级完成")
+            if not Back2maintitle(): return
+            if not _sleep(2): return
 
-        # 领取奖励
-        print("开始领取奖励")
-        tapscreen_tool.tap_screen(955, 119)
-        if not _sleep(3): return
-        screenshot1 = screenshot_tool.capture()
-        (x12, y12), conf2 = taskpagecheak_detector.find_icon(screenshot1)
-        while x12 is None:
-            if stop_event and stop_event.is_set(): return
+        # region领取奖励
+        if 'task_reward' in selected_tasks:
+            print("开始领取奖励")
             tapscreen_tool.tap_screen(955, 119)
-            if not _sleep(1): return
+            if not _sleep(3): return
             screenshot1 = screenshot_tool.capture()
             (x12, y12), conf2 = taskpagecheak_detector.find_icon(screenshot1)
-        print("已进入任务界面")
-        for _ in range(3):
-            tapscreen_tool.tap_screen(1125, 591)
-            if not _sleep(1): return
-        for _ in range(4):
-            tapscreen_tool.tap_screen(1142, 65)
-            if not _sleep(1): return
-        if not Back2maintitle(): return
-        if not _sleep(2): return
-        print("领取奖励完成")
+            while x12 is None:
+                if stop_event and stop_event.is_set(): return
+                tapscreen_tool.tap_screen(955, 119)
+                if not _sleep(1): return
+                screenshot1 = screenshot_tool.capture()
+                (x12, y12), conf2 = taskpagecheak_detector.find_icon(screenshot1)
+            print("已进入任务界面")
+            for _ in range(3):
+                tapscreen_tool.tap_screen(1125, 591)
+                if not _sleep(1): return
+            for _ in range(4):
+                tapscreen_tool.tap_screen(1142, 65)
+                if not _sleep(1): return
+            if not Back2maintitle(): return
+            if not _sleep(2): return
+            print("领取奖励完成")
         print("日常任务全部完成!")
         

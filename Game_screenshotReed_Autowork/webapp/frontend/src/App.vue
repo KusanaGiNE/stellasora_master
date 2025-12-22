@@ -28,6 +28,17 @@
                 <input type="checkbox" v-model="tasks.dailytasks">
                 日常任务流程
               </label>
+              <div v-if="tasks.dailytasks" class="sub-options">
+                 <div class="daily-sub-tasks" style="display: flex; flex-direction: column; margin-left: 20px;">
+                   <label><input type="checkbox" v-model="dailySubTasks.interaction"> 主页面角色互动</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.market_reward"> 领取商店随机奖励</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.commission"> 委托派遣</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.gift"> 赠送礼物</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.card_upgrade"> 秘纹升级</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.character_upgrade"> 旅人升级</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.task_reward"> 领取日常任务奖励</label>
+                 </div>
+              </div>
               <label class="label-with-tooltip">
                 <input type="checkbox" v-model="tasks.towerClimbing">
                 自动爬塔
@@ -158,6 +169,15 @@ export default {
         dailytasks: false,
         towerClimbing: false
       },
+      dailySubTasks: {
+        interaction: true,
+        market_reward: true,
+        commission: true,
+        gift: true,
+        card_upgrade: true,
+        character_upgrade: true,
+        task_reward: true
+      },
       towerAttribute: 'light_earth',
       towerClimbType: 'standard',
       towerMaxRuns: 0,
@@ -272,6 +292,10 @@ export default {
           payload.attribute_type = this.towerAttribute
           payload.climb_type = this.towerClimbType
           payload.max_runs = this.towerMaxRuns
+        }
+        if (type === 'dailytasks' || type === 'daily_and_tower' || type === 'combo') {
+             const selected = Object.keys(this.dailySubTasks).filter(k => this.dailySubTasks[k]);
+             payload.daily_sub_tasks = selected;
         }
         const res = await fetch(this.apiUrl('/task/start'), {
           method: 'POST',

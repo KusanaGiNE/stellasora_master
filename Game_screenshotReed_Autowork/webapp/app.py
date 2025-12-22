@@ -70,7 +70,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         if task_type == 'start_game':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'dailytasks':
-            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
+            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'))
         elif task_type == 'tower_climbing':
             towerclimber_tool.run(
                 attribute_type=kwargs.get('attribute_type'),
@@ -83,9 +83,9 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         elif task_type == 'combo':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
             if not stop_event.is_set():
-                dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
+                dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'))
         elif task_type == 'daily_and_tower':
-            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
+            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'))
             if not stop_event.is_set():
                 towerclimber_tool.run(
                     attribute_type=kwargs.get('attribute_type'),
@@ -133,7 +133,8 @@ def task_start():
     attribute_type = data.get('attribute_type')
     max_runs = data.get('max_runs', 0)
     climb_type = data.get('climb_type')
-    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}")
+    daily_sub_tasks = data.get('daily_sub_tasks')
+    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, daily_sub_tasks={daily_sub_tasks}")
 
     if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing', 'daily_and_tower'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
@@ -153,6 +154,9 @@ def task_start():
             kwargs['climb_type'] = climb_type
             # 默认开启周常检测
             kwargs['stop_on_weekly'] = True
+        
+        if task_type in ('dailytasks', 'daily_and_tower', 'combo'):
+            kwargs['selected_tasks'] = daily_sub_tasks
 
         _task_thread = Thread(target=_run_task, args=(task_type, _task_stop_event), kwargs=kwargs, daemon=True)
         _task_thread.start()
