@@ -1,0 +1,71 @@
+Metadata-Version: 2.1
+Name: scrcpy-client
+Version: 0.4.1
+Summary: A client of scrcpy
+Home-page: https://github.com/leng-yue/py-scrcpy-client
+License: MIT
+Author: lengyue
+Author-email: lengyue@lengyue.me
+Requires-Python: >=3.8
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Provides-Extra: ui
+Requires-Dist: PySide6 (>=6.3.0,<7.0.0); extra == "ui"
+Requires-Dist: adbutils (>=0.14.1,<0.15.0)
+Requires-Dist: av (>=9.2.0,<10.0.0)
+Requires-Dist: click (>=8.1.3,<9.0.0); extra == "ui"
+Requires-Dist: opencv-python (>=4.5.3,<5.0.0)
+Project-URL: Repository, https://github.com/leng-yue/py-scrcpy-client
+Description-Content-Type: text/markdown
+
+# Python Scrcpy Client
+<p>
+    <a href="https://pypi.org/project/scrcpy-client/" target="_blank">
+        <img src="https://img.shields.io/pypi/v/scrcpy-client" />
+    </a>
+    <a href="https://github.com/leng-yue/py-scrcpy-client/actions/workflows/ci.yml" target="_blank">
+        <img src="https://img.shields.io/github/workflow/status/leng-yue/py-scrcpy-client/CI" />
+    </a>
+    <a href="https://app.codecov.io/gh/leng-yue/py-scrcpy-client" target="_blank">
+        <img src="https://img.shields.io/codecov/c/github/leng-yue/py-scrcpy-client" />
+    </a>
+    <img src="https://img.shields.io/github/license/leng-yue/py-scrcpy-client" />
+    <a href="https://pepy.tech/project/scrcpy-client" target="_blank">
+        <img src="https://pepy.tech/badge/scrcpy-client" />
+    </a>
+    <a href="https://github.com/Genymobile/scrcpy/tree/v1.24" target="_blank">
+        <img src="https://img.shields.io/badge/scrcpy-v1.24-violet" />
+    </a>
+</p>
+
+This package allows you to view and control android device in realtime.
+
+![demo gif](https://raw.githubusercontent.com/leng-yue/py-scrcpy-client/main/demo.gif)  
+
+Note: This gif is compressed and experience lower quality than actual.
+
+## How to use
+To begin with, you need to install this package via pip:
+```shell
+pip install scrcpy-client[ui]
+```
+Then, you can start `py-scrcpy` to view the demo:
+
+Note: you can ignore `[ui]` if you don't want to view the demo ui
+
+## Document
+Here is the document GitHub page: [Documentation](https://leng-yue.github.io/py-scrcpy-client/)  
+Also, you can check `scrcpy_ui/main.py` for a full functional demo.
+
+## Contribution & Development
+Already implemented all functions in scrcpy server 1.24.  
+Please check scrcpy server 1.24 source code: [Link](https://github.com/Genymobile/scrcpy/tree/v1.24/server)
+
+## Reference & Appreciation
+- Core: [scrcpy](https://github.com/Genymobile/scrcpy)
+- Idea: [py-android-viewer](https://github.com/razumeiko/py-android-viewer)
+- CI: [index.py](https://github.com/index-py/index.py)
+

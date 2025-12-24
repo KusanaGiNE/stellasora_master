@@ -1,0 +1,3 @@
+[console_scripts]
+py-scrcpy=scrcpy_ui:main
+
