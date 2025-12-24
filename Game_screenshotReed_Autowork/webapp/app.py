@@ -4,10 +4,17 @@ import sys
 import base64
 import time
 import subprocess
+import urllib.request
+import json
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, Response
 import cv2
 import numpy as np
+import logging
+
+# 禁用 Flask 默认的请求日志输出
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -18,8 +25,52 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from core import MumuScreenshot, Tapscreen, StartGame, IconDetector, Dailytasks, TowerClimber
 from threading import Event, Thread, Lock
 from core.config import get_config, update_config
+import threading
 
 app = Flask(__name__, static_folder=str(BASE_DIR / 'static'), static_url_path='', template_folder=str(BASE_DIR / 'templates'))
+
+@app.route('/system/version', methods=['GET'])
+def get_current_version():
+    version_file = PROJECT_ROOT / 'version.txt'
+    if version_file.exists():
+        try:
+            return jsonify({'version': version_file.read_text(encoding='utf-8').strip()})
+        except Exception:
+            pass
+    return jsonify({'version': '1.0.0'})
+
+@app.route('/system/check_update', methods=['GET'])
+def check_update_proxy():
+    url = "http://103.239.245.46:52176/version.json"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                return jsonify(data)
+            else:
+                return jsonify({'error': f'Server returned status {response.status}'}), 502
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/system/start_update', methods=['POST'])
+def start_update():
+    # 启动更新程序并关闭自己
+    try:
+        if os.path.exists("Update.exe"):
+            subprocess.Popen(["Update.exe"])
+        else:
+            # 如果没有编译成 exe，尝试用 python 运行脚本 (开发环境)
+            subprocess.Popen([sys.executable, "update.py"])
+            
+        # 给前端一点时间接收响应
+        def kill_self():
+            time.sleep(1)
+            os._exit(0)
+            
+        threading.Thread(target=kill_self).start()
+        return jsonify({'status': 'success', 'message': '正在启动更新程序...'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # 实例化核心工具（复用已有逻辑）
 TEMPLATE_PATH = os.path.normpath(str(PROJECT_ROOT / 'templates' / 'button_template.png'))
@@ -29,10 +80,113 @@ except Exception:
     detector = IconDetector()
 
 screenshot_tool = MumuScreenshot()
+# 初始化时从配置加载截图方式
+_cfg = get_config()
+if 'screenshot_method' in _cfg:
+    screenshot_tool.set_method(_cfg['screenshot_method'])
+
 tapscreen_tool = Tapscreen()
 startgame_tool = StartGame()
 dailytasks_tool = Dailytasks()
 towerclimber_tool = TowerClimber()
+
+# === 环境自检代码 (新增) ===
+print("="*60)
+print(f"【环境检测】正在使用的 Python 解释器: {sys.executable}")
+print(f"【环境检测】当前工作目录: {os.getcwd()}")
+if "Game_screenshotReed_Autowork" in sys.executable:
+    print("⚠️ 警告: 您正在使用内部的旧环境，建议切换到根目录环境！")
+else:
+    print("✅ 状态: 您正在使用根目录的统一环境。")
+print("="*60)
+# =========================
+
+def generate_frames():
+    """生成器函数，不断获取最新截图并编码为 MJPEG 流"""
+    last_time = time.time()
+    frame_count = 0
+    fps = 0
+    target_fps = 65
+    frame_interval = 1.0 / target_fps
+    
+    # 新增：用于去重的变量
+    last_frame_obj = None
+    
+    while True:
+        loop_start = time.time()
+        try:
+            # 使用全局的 screenshot_tool 实例
+            frame = screenshot_tool.capture()
+            if frame is None:
+                time.sleep(0.1)
+                continue
+
+            # === 核心修改：FPS 统计逻辑 ===
+            # 只有当获取到的 frame 对象发生变化（内存地址不同）时，才视为有效的新帧
+            # Scrcpy 模式下，如果有新帧解码，latest_frame 会被替换为新的 numpy 对象
+            if frame is not last_frame_obj:
+                frame_count += 1
+                last_frame_obj = frame
+            # ===========================
+
+            # 计算 FPS
+            current_time = time.time()
+            if current_time - last_time >= 1.0:
+                fps = frame_count / (current_time - last_time)
+                frame_count = 0
+                last_time = current_time
+
+            # 缩放预览图以提高性能 (例如宽度固定为 640)
+            # h, w = frame.shape[:2]
+            # scale = 640 / w
+            # if scale < 1:
+            #     preview_frame = cv2.resize(frame, (640, int(h * scale)))
+            # else:
+            #     preview_frame = frame
+            preview_frame = frame.copy() # Copy to avoid modifying original frame if used elsewhere
+
+            # 在画面上绘制 FPS
+            # 提示：如果 FPS 为 0，说明画面静止（可能是没操作，也可能是流断了）
+            color = (0, 255, 0) if fps > 0 else (0, 0, 255) # 动则绿，静则红
+            cv2.putText(preview_frame, f"FPS: {fps:.1f}", (10, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+
+            # 将 numpy array 编码为 jpg
+            ret, buffer = cv2.imencode('.jpg', preview_frame)
+            if not ret:
+                continue
+            
+            frame_bytes = buffer.tobytes()
+            # 生成 MJPEG 帧格式
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # 控制帧率上限
+            elapsed = time.time() - loop_start
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+
+        except Exception as e:
+            print(f"Stream error: {e}")
+            time.sleep(1)
+
+@app.route('/video_feed')
+def video_feed():
+    """视频流路由"""
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/stream/start')
+def start_stream():
+    """手动开启截图流"""
+    screenshot_tool.start_stream()
+    return jsonify({'ok': True, 'msg': 'Stream started'})
+
+@app.route('/stream/stop')
+def stop_stream():
+    """手动停止截图流"""
+    screenshot_tool.stop_stream()
+    return jsonify({'ok': True, 'msg': 'Stream stopped'})
 
 """任务控制：支持启动 / 停止 / 暂停 / 恢复。"""
 _task_stop_event: Event | None = None
@@ -70,7 +224,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         if task_type == 'start_game':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'dailytasks':
-            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'))
+            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
         elif task_type == 'tower_climbing':
             towerclimber_tool.run(
                 attribute_type=kwargs.get('attribute_type'),
@@ -83,9 +237,9 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         elif task_type == 'combo':
             startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
             if not stop_event.is_set():
-                dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'))
+                dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
         elif task_type == 'daily_and_tower':
-            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'))
+            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
             if not stop_event.is_set():
                 towerclimber_tool.run(
                     attribute_type=kwargs.get('attribute_type'),
@@ -134,7 +288,8 @@ def task_start():
     max_runs = data.get('max_runs', 0)
     climb_type = data.get('climb_type')
     daily_sub_tasks = data.get('daily_sub_tasks')
-    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, daily_sub_tasks={daily_sub_tasks}")
+    invitation_characters = data.get('invitation_characters')
+    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, daily_sub_tasks={daily_sub_tasks}, invitation_characters={invitation_characters}")
 
     if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing', 'daily_and_tower'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
@@ -157,6 +312,7 @@ def task_start():
         
         if task_type in ('dailytasks', 'daily_and_tower', 'combo'):
             kwargs['selected_tasks'] = daily_sub_tasks
+            kwargs['invitation_characters'] = invitation_characters
 
         _task_thread = Thread(target=_run_task, args=(task_type, _task_stop_event), kwargs=kwargs, daemon=True)
         _task_thread.start()
@@ -281,6 +437,33 @@ def get_logs():
         return jsonify({'ok': False, 'error': str(e)})
 
 
+@app.route('/logs/export')
+def export_logs():
+    """导出当前内存中的所有日志"""
+    try:
+        # 将日志转换为文本格式
+        log_lines = []
+        for item in list(_log_deque):
+            # 格式化时间戳
+            dt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(item['ts']))
+            log_lines.append(f"[{dt}] {item['level']}: {item['msg']}")
+        
+        content = "\n".join(log_lines)
+        
+        # 创建内存文件
+        mem_file = io.BytesIO()
+        mem_file.write(content.encode('utf-8'))
+        mem_file.seek(0)
+        
+        return send_file(
+            mem_file,
+            mimetype='text/plain',
+            as_attachment=True,
+            download_name=f'stellasora_logs_{int(time.time())}.txt'
+        )
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 
 @app.route('/')
 def index():
@@ -318,6 +501,41 @@ def start_dailytasks():
         return jsonify({'ok': False, 'error': str(e)})
 
 
+@app.route('/stream/status')
+def api_stream_status():
+    """获取流状态"""
+    return jsonify({
+        "running": screenshot_tool.running,
+        "method": screenshot_tool.screenshot_method
+    })
+
+@app.route('/api/test_latency', methods=['POST'])
+def test_latency():
+    """测试当前截图方式的延迟"""
+    try:
+        # 记录开始时间
+        start_time = time.time()
+        
+        # 强制执行一次截图
+        # 注意：如果流正在运行，capture() 返回的是缓存帧，延迟会非常低（接近0）
+        # 如果流未运行，capture() 会执行真实的截图操作
+        frame = screenshot_tool.capture()
+        
+        if frame is None:
+            return jsonify({"success": False, "error": "截图失败"})
+            
+        # 计算耗时 (毫秒)
+        latency_ms = (time.time() - start_time) * 1000
+        
+        return jsonify({
+            "success": True, 
+            "latency_ms": latency_ms,
+            "method": screenshot_tool.screenshot_method,
+            "is_stream_running": screenshot_tool.running
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/config', methods=['GET', 'POST'])
 def config_endpoint():
     """Expose configuration for frontend settings page."""
@@ -330,6 +548,11 @@ def config_endpoint():
             return jsonify({'ok': False, 'error': '请求体格式错误，应为 JSON 对象'}), 400
 
         updated = update_config(payload)
+        
+        # 如果配置中包含 screenshot_method，更新 screenshot_tool
+        if 'screenshot_method' in updated:
+            screenshot_tool.set_method(updated['screenshot_method'])
+            
         return jsonify({'ok': True, 'config': updated})
     except Exception as exc:
         # logger.exception('配置接口处理失败') # logger not defined in this scope based on previous reads, using print

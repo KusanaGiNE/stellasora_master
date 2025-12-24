@@ -17,5 +17,13 @@
       "path": "E:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
       "port": 16384
     }
-  }
+  },
+  "screenshot_method": "SCRCPY",
+  "invitation_characters": [
+    "",
+    "",
+    "",
+    "",
+    ""
+  ]
 }

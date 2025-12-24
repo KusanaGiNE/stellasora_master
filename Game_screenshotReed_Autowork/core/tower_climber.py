@@ -15,53 +15,40 @@ from .slide import Slide
 from .config import get_config
 
 
-class TowerClimber:
+from .base_task import BaseTask
+
+class TowerClimber(BaseTask):
     def __init__(self):
-        self.screenshot_tool = MumuScreenshot()
-        self.tapscreen_tool = Tapscreen()
+        super().__init__()
         self.display_tool = Showdetector(output_dir="tower_climber_test")
         self.ocr_tool = OcrTool()
         self.slide_tool = Slide()
 
-        config = get_config()
-        lang = config.get("server_lang", "zh-CN")
-        folder_name = f"templates_{lang}"
-
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-            tpl_dir = os.path.join(base_path, folder_name)
-        else:
-            tpl_dir = os.path.join(os.path.dirname(__file__), f"../{folder_name}")
-        
-        tpl_dir = os.path.abspath(tpl_dir)
-
-        def _load(subpath):
-            return IconDetector(os.path.join(tpl_dir, subpath))
-
         # region图标识别器预加载
-        self.maintitle_detector = _load("mainTitle_icon/Market.png")
-        self.market_detector = _load("mainTitle_icon/Purchasing.png")
-        self.tower_detector = _load("tower_climber/tower.png")
-        self.recommend_detector = _load("tower_climber/recommend.png") #推荐卡牌检测器
-        self.musicnoteget_detector = _load("tower_climber/musicnoteget.png") #音符获取检测器
-        self.skillactivate_detector = _load("tower_climber/skillactivate.png") #协奏技能激活检测器
-        self.talk_detector = _load("tower_climber/talk.png") #对话检测器
-        self.skipshopping_detector = _load("tower_climber/skipshopping.png") #跳过购买检测器
-        self.quittower_detector = _load("tower_climber/quittower.png") #退出爬塔检测器
-        self.formationpagecheak_detector = _load("tower_climber/formationpagecheak.png") #编成页面检测器 
-        self.cancel_detector = _load("tower_climber/cancel.png") #取消按钮检测器
-        self.savepagecheak_detector = _load("tower_climber/delete.png") #保存页面检测器
-        self.quickclimb_detector = _load("tower_climber/quickclimb.png") #快速爬塔检测器
-        self.giveupticket_detector = _load("tower_climber/giveup.png") #检测是否有未完成的爬塔记录
-        self.discount_detector = _load("tower_climber/discount.png") #优惠商品检测器
-        self.buy_detector = _load("tower_climber/buy.png") #购买按钮检测器
-        self.buypagecheak_detector = _load("tower_climber/buypagecheak.png") #购买页面检测器
-        self.islocked_detector = _load("tower_climber/islocked.png") #检测是否锁定
+        self.maintitle_detector = self.load_detector("mainTitle_icon/Market.png")
+        self.market_detector = self.load_detector("mainTitle_icon/Purchasing.png")
+        self.tower_detector = self.load_detector("tower_climber/tower.png")
+        self.recommend_detector = self.load_detector("tower_climber/recommend.png") #推荐卡牌检测器
+        self.musicnoteget_detector = self.load_detector("tower_climber/musicnoteget.png") #音符获取检测器
+        self.skillactivate_detector = self.load_detector("tower_climber/skillactivate.png") #协奏技能激活检测器
+        self.talk_detector = self.load_detector("tower_climber/talk.png") #对话检测器
+        self.skipshopping_detector = self.load_detector("tower_climber/skipshopping.png") #跳过购买检测器
+        self.quittower_detector = self.load_detector("tower_climber/quittower.png") #退出爬塔检测器
+        self.formationpagecheak_detector = self.load_detector("tower_climber/formationpagecheak.png") #编成页面检测器 
+        self.cancel_detector = self.load_detector("tower_climber/cancel.png") #取消按钮检测器
+        self.savepagecheak_detector = self.load_detector("tower_climber/delete.png") #保存页面检测器
+        self.quickclimb_detector = self.load_detector("tower_climber/quickclimb.png") #快速爬塔检测器
+        self.giveupticket_detector = self.load_detector("tower_climber/giveup.png") #检测是否有未完成的爬塔记录
+        self.discount_detector = self.load_detector("tower_climber/discount.png") #优惠商品检测器
+        self.buy_detector = self.load_detector("tower_climber/buy.png") #购买按钮检测器
+        self.buypagecheak_detector = self.load_detector("tower_climber/buypagecheak.png") #购买页面检测器
+        self.islocked_detector = self.load_detector("tower_climber/islocked.png") #检测是否锁定
 
+    # Removed local click_until_appear to use BaseTask's implementation
     
-    def find_multi_icons(self, screenshot, detector, threshold=0.85, min_dist=30):
+    def find_multi_icons(self, screenshot, detector, threshold=0.85, min_dist=30, target_width=1280):
         """
-        在截图中查找所有匹配的图标
+        在截图中查找所有匹配的图标，支持分辨率适配
         """
         if screenshot is None or detector is None:
             return []
@@ -79,15 +66,32 @@ class TowerClimber:
         if template is None:
             return []
 
+        # 分辨率适配
+        h_img, w_img = screenshot.shape[:2]
+        scale_ratio = 1.0
+        if abs(w_img - target_width) > 10:
+            scale_ratio = target_width / w_img
+            new_h = int(h_img * scale_ratio)
+            screenshot_resized = cv2.resize(screenshot, (target_width, new_h))
+        else:
+            screenshot_resized = screenshot
+
         h, w = template.shape[:2]
-        res = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+        # 检查大小
+        if screenshot_resized.shape[0] < h or screenshot_resized.shape[1] < w:
+             return []
+
+        res = cv2.matchTemplate(screenshot_resized, template, cv2.TM_CCOEFF_NORMED)
         loc = np.where(res >= threshold)
         
         points = []
         for pt in zip(*loc[::-1]):  
             center_x = int(pt[0] + w / 2)
             center_y = int(pt[1] + h / 2)
-            points.append((center_x, center_y))
+            # 还原坐标
+            final_x = int(center_x / scale_ratio)
+            final_y = int(center_y / scale_ratio)
+            points.append((final_x, final_y))
 
         filtered_points = []
         for p in points:
@@ -103,6 +107,13 @@ class TowerClimber:
         return filtered_points
 
     def run(self, attribute_type=None, max_runs=0, stop_on_weekly=True, stop_event=None, sleep_fn=None, climb_type= None):
+        self.screenshot_tool.start_stream()
+        try:
+            self._run_internal(attribute_type, max_runs, stop_on_weekly, stop_event, sleep_fn, climb_type)
+        finally:
+            self.screenshot_tool.stop_stream()
+
+    def _run_internal(self, attribute_type, max_runs, stop_on_weekly, stop_event, sleep_fn, climb_type):
         """
         支持 stop_event; sleep_fn(seconds, stop_event).
         :param attribute_type: 'light_earth' | 'water_wind' | 'fire_dark'
@@ -186,18 +197,31 @@ class TowerClimber:
         if not _sleep(2): return
 
         #region出发爬塔
-        tapscreen_tool.tap_screen(1158, 637)
-        if not _sleep(3): return
-        screenshot = screenshot_tool.capture()
-        (x_tower, y_tower), conf_tower = self.tower_detector.find_icon(screenshot)
-        if x_tower is None:
+        # 使用 click_until_appear 尝试进入爬塔界面
+        # 目标：点击(1158, 637)（出发按钮？），直到检测到 tower_detector
+        # 由于出发按钮没有detector，我们只能手动循环，或者创建一个临时的“虚拟detector”
+        # 但 click_until_appear 支持 target_detector=None，我们可以手动点击
+        
+        print("尝试进入爬塔界面...")
+        entered_tower = False
+        for _ in range(5):
             if stop_event and stop_event.is_set(): return
             tapscreen_tool.tap_screen(1158, 637)
-            if not _sleep(1): return
+            if not _sleep(2): return # 稍微等待界面加载
+            
             screenshot = screenshot_tool.capture()
             (x_tower, y_tower), conf_tower = self.tower_detector.find_icon(screenshot)
-        tapscreen_tool.tap_screen(x_tower, y_tower)
-        if not _sleep(3): return
+            if x_tower is not None:
+                entered_tower = True
+                # 点击塔
+                tapscreen_tool.tap_screen(x_tower, y_tower)
+                if not _sleep(3): return
+                break
+        
+        if not entered_tower:
+            print("未能进入爬塔界面")
+            return
+
         screenshot = screenshot_tool.capture()
         (x_giveup, y_giveup), conf_giveup = giveupticket_detector.find_icon(screenshot)
         if x_giveup is not None:
@@ -318,6 +342,10 @@ class TowerClimber:
                                 if x_buy is not None:
                                     tapscreen_tool.tap_screen(x_buy, y_buy)  # 点击购买按钮
                                     if not _sleep(2): return
+                                    
+                                    # 引入计数器，实现动态等待
+                                    no_response_count = 0
+                                    
                                     while True:
                                         if stop_event and stop_event.is_set():
                                             print("收到停止信号，退出爬塔")
@@ -326,7 +354,7 @@ class TowerClimber:
                                         screenshot = screenshot_tool.capture()
                                         (x_buycheak, y_buycheak), conf_buycheak = buypagecheak_detector.find_icon(screenshot)
                                         if x_buycheak is not None:
-                                            break
+                                            break # 购买成功，退出循环
 
                                         (x_reco, y_reco), conf_reco = recommend_detector.find_icon(screenshot)
                                         if x_reco is not None:
@@ -335,6 +363,7 @@ class TowerClimber:
                                             if not _sleep(2): return
                                             tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
                                             if not _sleep(3): return
+                                            no_response_count = 0 # 重置计数器
                                             continue    
                                         (x_music, y_music), conf_music = musicnoteget_detector.find_icon(screenshot)
                                         if x_music is not None:
@@ -343,6 +372,7 @@ class TowerClimber:
                                             if not _sleep(2): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(3): return
+                                            no_response_count = 0 # 重置计数器
                                             continue
                                         (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
                                         if x_skill is not None:
@@ -353,7 +383,17 @@ class TowerClimber:
                                             if not _sleep(1): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(2): return
+                                            no_response_count = 0 # 重置计数器
                                             continue
+                                        
+                                        # === 动态等待逻辑 ===
+                                        # 如果代码运行到这里，说明上述所有图标都没找到（界面卡住或加载中）
+                                        no_response_count += 1
+                                        if no_response_count >= 3:
+                                            # 连续3次未检测到状态，判定为卡顿，主动休眠1秒防止ADB崩溃
+                                            # 正常流畅时不会触发此逻辑，保证效率
+                                            if not _sleep(1): return
+                                        # ===================
 
                                 else:#金钱不足，跳出购买循环
                                     break
@@ -418,6 +458,8 @@ class TowerClimber:
                     if not _sleep(2): return
                     tapscreen_tool.tap_screen(776, 534)  
                     if not _sleep(2): return
+                    tapscreen_tool.tap_screen(776, 534)  
+                    if not _sleep(2): return
                     break # 退出塔后跳出循环，完成一次爬塔
                     
     
@@ -473,6 +515,10 @@ class TowerClimber:
                                 if x_buy is not None:
                                     tapscreen_tool.tap_screen(x_buy, y_buy)  # 点击购买按钮
                                     if not _sleep(2): return
+                                    
+                                    # 引入计数器，实现动态等待
+                                    no_response_count = 0
+                                    
                                     while True:
                                         if stop_event and stop_event.is_set():
                                             print("收到停止信号，退出爬塔")
@@ -490,6 +536,7 @@ class TowerClimber:
                                             if not _sleep(2): return
                                             tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
                                             if not _sleep(3): return
+                                            no_response_count = 0 # 重置计数器
                                             continue    
                                         (x_music, y_music), conf_music = musicnoteget_detector.find_icon(screenshot)
                                         if x_music is not None:
@@ -498,6 +545,7 @@ class TowerClimber:
                                             if not _sleep(2): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(3): return
+                                            no_response_count = 0 # 重置计数器
                                             continue
                                         (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
                                         if x_skill is not None:
@@ -508,8 +556,16 @@ class TowerClimber:
                                             if not _sleep(1): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(2): return
+                                            no_response_count = 0 # 重置计数器
                                             continue
-
+                                        
+                                        # 防止网卡adb截图崩溃
+                                        no_response_count += 1
+                                        if no_response_count >= 2:
+                                            # 连续2次未检测到状态，判定为卡顿
+                                            
+                                            if not _sleep(1): return
+                                       
                                 else:#金钱不足，跳出购买循环
                                     break
 
@@ -517,7 +573,7 @@ class TowerClimber:
                             tapscreen_tool.tap_screen(68, 37)
                             if not _sleep(2): return
                         
-                                
+                                                
                         else:
                             print("未发现优惠商品")
                             tapscreen_tool.tap_screen(68, 37)

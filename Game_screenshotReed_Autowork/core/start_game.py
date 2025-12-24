@@ -38,7 +38,8 @@ class StartGame:
         folder_name = f"templates_{lang}"
 
         if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
+            # 在 onedir 模式下，资源文件放在 exe 同级目录，而不是 _internal (_MEIPASS)
+            base_path = os.path.dirname(sys.executable)
             tpl_dir = os.path.join(base_path, folder_name)
         else:
             tpl_dir = os.path.join(os.path.dirname(__file__), f"../{folder_name}")

@@ -19,6 +19,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "server_lang": "zh-CN",  # zh-CN or zh-Hant
     "emulator_type": "MuMu12",
     "emulator_configs": {},
+    "screenshot_method": "PNG",
+    "invitation_characters": ["", "", "", "", ""],
 }
 
 _CONFIG_CACHE: Dict[str, Any] | None = None

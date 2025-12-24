@@ -1,0 +1,34 @@
+Metadata-Version: 2.4
+Name: adbutils
+Version: 2.12.0
+Summary: Pure Python Adb Library
+Home-page: https://github.com/openatx/adbutils
+Author: codeskyblue
+Author-email: codeskyblue@gmail.com
+License: MIT
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: POSIX
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: Software Development :: Testing
+Requires-Python: >=3.8
+License-File: LICENSE
+License-File: AUTHORS
+Requires-Dist: requests
+Requires-Dist: deprecation<3.0,>=2.0.6
+Requires-Dist: retry2<1.0,>=0.9
+Requires-Dist: Pillow
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

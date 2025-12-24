@@ -13,6 +13,13 @@ class Slide:
 	def __init__(self, adb_path: str | None = None, default_instance: int | None = None) -> None:
 		self._adb_override = resolve_path(adb_path) if adb_path else None
 		self._default_instance_override = default_instance
+		self.scale_x = 1.0
+		self.scale_y = 1.0
+
+	def set_scale(self, scale_x: float, scale_y: float) -> None:
+		"""设置坐标缩放比例"""
+		self.scale_x = scale_x
+		self.scale_y = scale_y
 
 	def _port_for(self, instance_num: int | None) -> int:
 		return get_adb_port()
@@ -32,8 +39,14 @@ class Slide:
 
 	def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300, instance_num: int | None = None) -> None:
 		"""在屏幕上从 (x1, y1) 滑动到 (x2, y2)."""
+		
+		# 应用缩放
+		sx1 = int(x1 * self.scale_x)
+		sy1 = int(y1 * self.scale_y)
+		sx2 = int(x2 * self.scale_x)
+		sy2 = int(y2 * self.scale_y)
 
-		args = f"shell input swipe {int(x1)} {int(y1)} {int(x2)} {int(y2)} {int(duration)}"
+		args = f"shell input swipe {sx1} {sy1} {sx2} {sy2} {int(duration)}"
 		try:
 			self._run_adb(args, instance_num=instance_num)
 		except subprocess.CalledProcessError as exc:  # pragma: no cover - 连接失败时报错
@@ -60,13 +73,13 @@ class Slide:
 			base = get_default_instance()
 		return instance_num if instance_num is not None else base
 
-	def swipe_down(self, x: int | None = None, start_y: int = 350, end_y: int = 500, duration: int = 400, instance_num: int | None = None) -> None:
+	def swipe_down(self, x: int | None = None, start_y: int = 300, end_y: int = 500, duration: int = 400, instance_num: int | None = None) -> None:
 		"""默认在屏幕中部执行向下滑动."""
 
 		x = 540 if x is None else x
 		self.swipe(x, start_y, x, end_y, duration=duration, instance_num=instance_num)
 
-	def swipe_up(self, x: int | None = None, start_y: int = 500, end_y: int = 100, duration: int = 400, instance_num: int | None = None) -> None:
+	def swipe_up(self, x: int | None = None, start_y: int = 500, end_y: int = 350, duration: int = 400, instance_num: int | None = None) -> None:
 		x = 540 if x is None else x
 		self.swipe(x, start_y, x, end_y, duration=duration, instance_num=instance_num)
 
