@@ -302,13 +302,7 @@ class Dailytasks(BaseTask):
                     tapscreen_tool.tap_screen(1161, 632)
                     if not _sleep(1): return
                     
-                    # 点击一键再次派遣，直到检测到再次派遣按钮出现（这里逻辑有点怪，原代码是点击(68,49)直到commissionagain出现）
-                    # 假设(68,49)是某个触发按钮
-                    # 这里可以用 click_until_appear 的变体，或者手动循环
-                    # 原逻辑：点击(68,49) -> 等待 commissionagain_detector
                     
-                    # 尝试点击左上角(68,49)，直到“再次派遣”按钮出现
-                    # 由于(68,49)没有对应的detector，我们只能手动调用tap
                     found_again = False
                     for _ in range(10):
                         if stop_event and stop_event.is_set(): return
@@ -508,7 +502,13 @@ class Dailytasks(BaseTask):
                             if not self.click_until_appear(target_detector=confirm_detector, expected_detector=select_detector, stop_event=stop_event):
                                 print(f"确认邀约失败: {char_key}")
                                 continue
-
+                            else:
+                                screenshot = screenshot_tool.capture()
+                                (xs, ys), confs = select_detector.find_icon(screenshot)
+                                tapscreen_tool.tap_screen(xs, ys)
+                                if not _sleep(1): return
+                            
+                        
                             # 4. 处理剧情（点击选择 -> 跳过 -> 送礼）
                             print("正在处理剧情...")
                             gift_found = False
@@ -530,13 +530,7 @@ class Dailytasks(BaseTask):
                                     _sleep(1)
                                     continue
                                 
-                                # 检查选择按钮
-                                (xs, ys), _ = select_detector.find_icon(screenshot)
-                                if xs:
-                                    print("点击选择")
-                                    tapscreen_tool.tap_screen(xs, ys)
-                                    _sleep(1)
-                                    continue
+                                
                                 
                                 _sleep(0.5)
 

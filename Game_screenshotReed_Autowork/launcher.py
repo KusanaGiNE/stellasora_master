@@ -14,6 +14,18 @@ os.chdir(base_path)
 print(f"Launcher started in: {base_path}")
 
 try:
+    # 如果以“更新模式”启动，则执行 update.py 并退出。
+    # 兼容两种启动方式：
+    # 1) StellasoraMaster.exe --update
+    # 2) subprocess.Popen([sys.executable, "update.py"]) 在 frozen 模式下会变成 exe update.py
+    if len(sys.argv) > 1:
+        first_arg = sys.argv[1]
+        normalized = os.path.basename(first_arg).lower()
+        if first_arg in ("--update", "update") or normalized == "update.py":
+            import update
+            update.update()
+            raise SystemExit(0)
+
     # 尝试导入外部的 run_app.py
     # 这要求 run_app.py 必须在 exe 同级目录下
     import run_app

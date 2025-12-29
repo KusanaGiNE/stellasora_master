@@ -16,7 +16,7 @@ class Tapscreen:
         self.scale_y = scale_y
         print(f"点击坐标缩放比例已设置为: x={scale_x:.2f}, y={scale_y:.2f}")
 
-    def tap_screen(self, x=0, y=0, instance_num=None, spread=5):
+    def tap_screen(self, x=0, y=0, instance_num=None, spread=2):
         """
         执行点击，增加随机偏移以模拟真人操作。
         :param spread: 随机偏移的标准差（像素），值越大点击范围越散

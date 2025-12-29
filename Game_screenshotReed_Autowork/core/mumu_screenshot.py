@@ -28,12 +28,12 @@ class MumuScreenshot:
                     cls._instance = super(MumuScreenshot, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, adb_path=None, default_instance=None):
+    def __init__(self, adb_path=None, default_instance=None, auto_connect: bool = True):
         if hasattr(self, '_initialized'):
             return
         self._adb_override = resolve_path(adb_path) if adb_path else None
         self._default_instance_override = default_instance
-        
+
         # 流式截图相关
         self.latest_frame = None
         self.frame_lock = threading.Lock()
@@ -41,18 +41,37 @@ class MumuScreenshot:
         self.thread = None
         self.scrcpy_client = None
         self._initialized = True
-        
+
         # 分辨率适配
         self.real_width = 0
         self.real_height = 0
         self.target_width = 1280
         self.target_height = 720
-        
+
         # 截图方式: 'PNG', 'RAW', 'SCRCPY'
         self.screenshot_method = 'PNG'
 
-        # 初始化连接
-        self._ensure_connected()
+        # Scrcpy稳定性控制
+        self._warmup_frames = 0
+        self._need_restart = False
+        self._bad_frame_streak = 0
+
+        # 帧监控：用于判断是否“卡在某一帧”
+        self._last_frame_ts = 0.0
+
+        # 任务启动时可预先探测一次 display_id（避免预览阶段触发 dumpsys）
+        self._preferred_display_id = None
+
+        # 初始化连接（可选）：Web 启动阶段允许跳过，避免启动时强制校验/连接 adb。
+        if auto_connect:
+            self._ensure_connected()
+
+    def frame_age(self):
+        """返回距离最后一次写入 latest_frame 的秒数；无数据返回 None"""
+        ts = getattr(self, "_last_frame_ts", 0.0) or 0.0
+        if ts <= 0:
+            return None
+        return time.time() - ts
 
     def set_method(self, method):
         """设置截图方式: 'PNG', 'RAW', 'SCRCPY'"""
@@ -61,85 +80,76 @@ class MumuScreenshot:
             return
 
         if method in ['PNG', 'RAW', 'SCRCPY']:
-            # 如果正在运行且模式改变，重启流
             restart = self.running and self.screenshot_method != method
             if restart:
                 self.stop_stream()
-            
+
             self.screenshot_method = method
             print(f"截图方式已切换为: {method}")
-            
+
             if restart:
                 self.start_stream()
 
-    def capture(self):
-        """获取当前屏幕截图"""
-        if self.screenshot_method == 'SCRCPY':
-            # 如果流未启动，自动启动
-            if not self.running:
-                print("Scrcpy 模式下自动启动截图流...")
-                self.start_stream()
-                # 等待第一帧
-                for _ in range(20):
-                    if self.latest_frame is not None: break
-                    time.sleep(0.1)
-            
-            if self.latest_frame is not None:
-                return self.latest_frame
-            
-            # 保持返回 None 以便前端等待，避免闪烁
-            return None
-            
-        elif self.screenshot_method == 'RAW':
-            return self._capture_raw()
-        else:
-            return self._capture_once()
+    def _is_garbled_green_frame(self, img: np.ndarray) -> bool:
+        """识别 scrcpy 花屏/绿屏帧（稳定优先：尽量避免误判导致无限重启）。
 
-    def _ensure_connected(self):
-        """确保ADB已连接，避免每次截图都连接"""
+        判定逻辑：
+        - 绿屏通常是“绝大多数像素都偏绿”，而不是整体略偏绿。
+        - 仅当“绿像素占比很高”并且“画面细节/方差很低”才视为坏帧。
+        """
+        if img is None or not hasattr(img, "shape"):
+            return True
+        if img.ndim != 3 or img.shape[2] < 3:
+            return True
+
         try:
-            adb_path = self._get_adb_path()
-        except RuntimeError:
-            print("ADB 路径未配置，跳过初始连接")
-            return
+            h, w = img.shape[:2]
+            # 下采样加速
+            scale = 64 / max(h, w)
+            if scale < 1.0:
+                small = cv2.resize(img, (int(w * scale), int(h * scale)))
+            else:
+                small = img
 
-        port = get_adb_port()
-        try:
-            subprocess.run(
-                f'"{adb_path}" connect 127.0.0.1:{port}',
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5
-            )
-        except Exception as e:
-            print(f"ADB连接警告: {e}")
+            b = small[..., 0].astype(np.int16)
+            g = small[..., 1].astype(np.int16)
+            r = small[..., 2].astype(np.int16)
 
-    def _get_adb_path(self):
-        adb_path = self._adb_override or get_adb_path(raise_on_missing=False)
-        if adb_path is None:
-            raise RuntimeError("ADB 路径未配置")
-        return adb_path
+            # 绿像素：G 明显大于 R/B 且亮度不太低
+            green_mask = (g > r + 40) & (g > b + 40) & (g > 80)
+            green_ratio = float(green_mask.mean())
 
-    def start_stream(self):
+            if green_ratio < 0.85:
+                return False
+
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            detail = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            std = float(gray.std())
+
+            # 极端绿屏通常“细节低 + 方差低”
+            return (detail < 10.0) and (std < 25.0)
+        except Exception:
+            # 解析失败宁可认为坏帧，触发上层重连
+            return True
+
+    def start_stream(self, detect_display: bool = True):
         """开启后台连续截图"""
         if self.running:
             return
         self.running = True
-        
+
         if self.screenshot_method == 'SCRCPY' and HAS_SCRCPY:
-            self._start_scrcpy_stream()
+            self._start_scrcpy_stream(detect_display=detect_display)
         else:
             self.thread = threading.Thread(target=self._stream_loop, daemon=True)
             self.thread.start()
-        
+
         print(f"截图流已启动 (模式: {self.screenshot_method})")
 
     def stop_stream(self):
         """停止后台截图"""
         self.running = False
-        
-        # 停止 Scrcpy
+
         if self.scrcpy_client:
             try:
                 self.scrcpy_client.stop()
@@ -147,7 +157,6 @@ class MumuScreenshot:
                 print(f"Scrcpy 停止错误: {e}")
             self.scrcpy_client = None
 
-        # 停止普通线程
         if self.thread:
             self.thread.join(timeout=2)
             self.thread = None
@@ -155,16 +164,39 @@ class MumuScreenshot:
 
     def _on_scrcpy_frame(self, frame):
         """Scrcpy 回调"""
-        if frame is not None:
-            # 预热丢帧，防止绿屏
-            if hasattr(self, '_warmup_frames') and self._warmup_frames > 0:
-                self._warmup_frames -= 1
-                return
+        if frame is None:
+            return
 
-            # Scrcpy 返回的是 BGR (opencv 默认)
-            img = self._process_image(frame)
-            with self.frame_lock:
-                self.latest_frame = img
+        # 预热丢帧，防止绿屏
+        if self._warmup_frames > 0:
+            self._warmup_frames -= 1
+            return
+
+        img = frame
+
+        # 兼容 4 通道（部分环境可能返回 BGRA）
+        try:
+            if isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 4:
+                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        except Exception:
+            return
+
+        img = self._process_image(img)
+        if img is None:
+            return
+
+        # 花屏检测：连续坏帧则触发重连
+        if self._is_garbled_green_frame(img):
+            self._bad_frame_streak += 1
+            if self._bad_frame_streak >= 8:
+                self._need_restart = True
+            return
+        else:
+            self._bad_frame_streak = 0
+
+        with self.frame_lock:
+            self.latest_frame = img
+            self._last_frame_ts = time.time()
 
     def _get_game_display_id(self, adb_path, serial):
         """获取游戏所在的显示器ID"""
@@ -209,37 +241,36 @@ class MumuScreenshot:
             print(f"获取显示器ID失败: {e}")
             return 0
 
-    def _start_scrcpy_stream(self):
+    def _start_scrcpy_stream(self, detect_display: bool = True):
         port = get_adb_port()
         serial = f"127.0.0.1:{port}"
         try:
-            # 尝试设置 adbutils 的 adb 路径
             adb_path = self._get_adb_path()
             if adb_path and os.path.exists(adb_path):
                 adb.adb_path = adb_path
-            
-            # 清理残留的 scrcpy-server 进程，防止连接到错误的旧会话
+
             try:
                 print("清理旧的 Scrcpy 服务进程...")
-                # 使用 pkill (如果可用) 或通过 ps 查找
-                # 简单粗暴的方法：kill 掉所有包含 scrcpy 的 app_process
                 subprocess.run(f'"{adb_path}" -s {serial} shell "pkill -f scrcpy"', shell=True, timeout=2)
             except Exception:
                 pass
 
-            # 获取正确的 display_id
-            display_id = self._get_game_display_id(adb_path, serial)
-            
+            if detect_display:
+                display_id = self._preferred_display_id if self._preferred_display_id is not None else self._get_game_display_id(adb_path, serial)
+            else:
+                display_id = 0
+
             adb.connect(serial)
             device = adb.device(serial=serial)
-            
-            # 初始化预热计数器
-            self._warmup_frames = 15
 
-            # 启动守护线程，在线程内部管理 Scrcpy Client 的生命周期
+            # 预热帧数：适当加大
+            self._warmup_frames = 30
+            self._need_restart = False
+            self._bad_frame_streak = 0
+
             self.thread = threading.Thread(target=self._scrcpy_loop_safe, args=(device, display_id), daemon=True)
             self.thread.start()
-            
+
         except Exception as e:
             print(f"Scrcpy 启动准备失败: {e}")
             print("回退到 RAW 模式")
@@ -249,79 +280,79 @@ class MumuScreenshot:
 
     def _scrcpy_loop_safe(self, device, display_id):
         """Scrcpy 视频流监听循环 (带异常捕获和重试)"""
-        # 导入 av 库 (放在这里是为了避免初始化时的依赖错误)
-        import av
-        
         retry_count = 0
-        
+
         while self.running:
-            # 检查当前线程是否仍是活跃的截图线程
-            # 如果 stop_stream 被调用，self.thread 会被置为 None
-            # 如果 start_stream 被调用，self.thread 会指向新线程
             if self.thread is not threading.current_thread():
                 print("检测到线程变更，停止当前 Scrcpy 线程")
                 break
 
             try:
-                # 每次循环重新创建 client，确保状态重置
                 if self.scrcpy_client:
                     try:
                         self.scrcpy_client.stop()
                     except:
                         pass
-                
-                # max_width=1280 限制分辨率，避免过高分辨率导致花屏或性能问题
-                # bitrate=4000000 (4Mbps) 降低码率以提高稳定性
-                # max_fps=15 限制帧率，减少解码压力
+
+                # 稳定性优先：降一点分辨率/码率/帧率，先把花屏压下去
                 self.scrcpy_client = scrcpy.Client(
-                    device=device, 
-                    max_width=1280, 
-                    bitrate=4000000, 
-                    max_fps=15,
+                    device=device,
+                    max_width=960,       # 原 1280
+                    bitrate=2000000,     # 原 4000000
+                    max_fps=10,          # 原 15
                     display_id=display_id
                 )
-                
-                # 绑定监听器
+
                 self.scrcpy_client.add_listener(scrcpy.EVENT_FRAME, self._on_scrcpy_frame)
-                
+
                 print(f"Scrcpy client starting (attempt {retry_count + 1})...")
                 self.scrcpy_client.start(threaded=True)
-                
-                # 等待连接建立
+
                 time.sleep(1)
-                
-                if self.scrcpy_client.alive:
+
+                if getattr(self.scrcpy_client, "alive", False):
                     print("Scrcpy client connected successfully")
-                    retry_count = 0 # 重置重试计数
-                
-                # 监控循环
-                while self.running and self.scrcpy_client.alive:
+                    retry_count = 0
+
+                while self.running and getattr(self.scrcpy_client, "alive", False):
                     if self.thread is not threading.current_thread():
                         break
-                    time.sleep(1)
-                
+
+                    # 回调检测到连续坏帧 -> 主循环触发重启
+                    if self._need_restart:
+                        print("检测到连续花屏帧，重启 Scrcpy client...")
+                        self._need_restart = False
+                        self._warmup_frames = 30
+                        break
+
+                    # 卡帧检测：超过 3 秒没有新帧写入，主动重启
+                    if self._warmup_frames == 0 and self._last_frame_ts > 0:
+                        if time.time() - self._last_frame_ts > 3.0:
+                            print("检测到 Scrcpy 卡帧(>3s无新帧)，重启 Scrcpy client...")
+                            self._warmup_frames = 30
+                            break
+
+                    time.sleep(0.5)
+
                 print("Scrcpy client disconnected or stopped")
-                    
+
             except Exception as e:
                 print(f"Scrcpy 流异常: {e}")
-            
-            # 如果还在运行状态，说明是异常退出，准备重试
+
             if self.running:
                 if self.thread is not threading.current_thread():
                     break
                 retry_count += 1
                 if retry_count > 10:
                     print("Scrcpy 重试次数过多，自动降级到 RAW 模式")
-                    self.running = False # 停止当前循环
+                    self.running = False
                     self.screenshot_method = 'RAW'
-                    # 重新启动流（会进入 _stream_loop）
                     self.start_stream()
                     return
 
                 print(f"等待 2 秒后重试... ({retry_count}/10)")
                 time.sleep(2)
-            
-            # 清理资源
+
             if self.scrcpy_client:
                 try:
                     self.scrcpy_client.stop()
@@ -336,6 +367,7 @@ class MumuScreenshot:
                 if img is not None:
                     with self.frame_lock:
                         self.latest_frame = img
+                        self._last_frame_ts = time.time()
                 else:
                     time.sleep(0.1) # 失败时稍作等待
             except Exception as e:
@@ -446,37 +478,114 @@ class MumuScreenshot:
             raise RuntimeError(f"ADB截图失败") from e
 
     def capture(self, instance_num=None, save_path=None):
-        """获取当前屏幕截图"""
-        # 如果是 Scrcpy 模式且未运行，自动启动流以获得高性能
-        if self.screenshot_method == 'SCRCPY' and not self.running:
-            print("Scrcpy 模式下自动启动截图流...")
-            self.start_stream()
-            # 等待第一帧，最多等待 2 秒
-            for _ in range(20):
-                with self.frame_lock:
-                    if self.latest_frame is not None:
-                        break
-                time.sleep(0.1)
+        """获取当前屏幕截图（合并版，避免重复定义覆盖）"""
+        # Scrcpy 模式下若未启动流，自动启动
+        if self.screenshot_method == 'SCRCPY':
+            if not self.running:
+                self.start_stream()
+                # 等待第一帧（最多 2 秒）
+                for _ in range(20):
+                    with self.frame_lock:
+                        if self.latest_frame is not None:
+                            break
+                    time.sleep(0.1)
 
-        img = None
-        
-        # 如果开启了流模式，直接取最新帧
-        if self.running:
+            img = None
+            last_ts = 0.0
             with self.frame_lock:
                 if self.latest_frame is not None:
                     img = self.latest_frame.copy()
-        
-        # 如果没开启流模式，或者流模式还没获取到第一帧，则手动截取 (回退到 PNG)
-        if img is None:
-            # 如果是 Scrcpy 模式但获取失败，可能是启动延迟，这里允许一次 PNG 回退
-            img = self._capture_once()
-            
+                    last_ts = float(self._last_frame_ts or 0.0)
+
+            # 若已有帧但长时间未更新：触发重启意图，仍返回当前帧（避免频繁回退 adb 截图）
+            if img is not None and last_ts > 0 and (time.time() - last_ts) > 2.0:
+                self._need_restart = True
+
+            # 若仍无帧，允许一次 PNG/RAW 回退（避免直接崩）
+            if img is None:
+                img = self._capture_once()
+                if img is not None:
+                    self._last_frame_ts = time.time()
+
+        else:
+            # 非 Scrcpy：若流在跑取最新帧，否则单次截图
+            img = None
+            if self.running:
+                with self.frame_lock:
+                    if self.latest_frame is not None:
+                        img = self.latest_frame.copy()
+            if img is None:
+                img = self._capture_raw() if self.screenshot_method == 'RAW' else self._capture_once()
+
         if img is None:
             raise ValueError("截图数据解析失败")
-            
+
         if save_path:
             save_path = str(Path(save_path))
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             cv2.imwrite(save_path, img)
-        
+
         return img
+
+    def _get_adb_path(self) -> str:
+        """解析 adb 路径（优先使用初始化传入的覆盖值）"""
+        if self._adb_override:
+            return str(self._adb_override)
+        p = get_adb_path()
+        return str(resolve_path(p)) if p else "adb"
+
+    def _ensure_connected(self, timeout_sec: float = 3.0) -> bool:
+        """确保 ADB 已连接到模拟器端口（127.0.0.1:port）"""
+        adb_path = self._get_adb_path()
+        port = get_adb_port()
+        serial = f"127.0.0.1:{port}"
+
+        def _run(cmd: str):
+            return subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                timeout=timeout_sec,
+            )
+
+        # 1) connect
+        proc_connect = _run(f'"{adb_path}" connect {serial}')
+        if proc_connect.returncode != 0:
+            detail = (proc_connect.stderr or proc_connect.stdout or '').strip()
+            raise RuntimeError(f"ADB connect 失败: {detail}")
+
+        # 2) devices
+        proc_devices = _run(f'"{adb_path}" devices')
+        out = (proc_devices.stdout or '')
+        ok = False
+        for line in out.splitlines():
+            if line.strip().startswith(serial) and "\tdevice" in line:
+                ok = True
+                break
+        if not ok:
+            detail = ((proc_devices.stderr or '') + "\n" + out).strip()
+            raise RuntimeError(f"ADB 未发现设备 {serial} (可能未启动/未授权): {detail}")
+
+        return True
+
+    def preflight_for_task(self, detect_display: bool = True) -> dict:
+        """任务启动前置检查：连接设备；SCRCPY 模式可提前探测 display_id。
+
+        返回: { serial, display_id? }
+        """
+        port = get_adb_port()
+        serial = f"127.0.0.1:{port}"
+        self._ensure_connected()
+
+        result = {"serial": serial}
+
+        if detect_display and self.screenshot_method == 'SCRCPY' and HAS_SCRCPY:
+            adb_path = self._get_adb_path()
+            display_id = self._get_game_display_id(adb_path, serial)
+            self._preferred_display_id = display_id
+            result["display_id"] = display_id
+
+        return result

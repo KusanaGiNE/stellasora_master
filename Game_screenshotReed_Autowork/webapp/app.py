@@ -72,23 +72,77 @@ def start_update():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# 实例化核心工具（复用已有逻辑）
-TEMPLATE_PATH = os.path.normpath(str(PROJECT_ROOT / 'templates' / 'button_template.png'))
-try:
-    detector = IconDetector(TEMPLATE_PATH)
-except Exception:
-    detector = IconDetector()
+_tool_lock = Lock()
 
-screenshot_tool = MumuScreenshot()
-# 初始化时从配置加载截图方式
-_cfg = get_config()
-if 'screenshot_method' in _cfg:
-    screenshot_tool.set_method(_cfg['screenshot_method'])
+_detector: IconDetector | None = None
+_screenshot_tool: MumuScreenshot | None = None
+_tapscreen_tool: Tapscreen | None = None
+_startgame_tool: StartGame | None = None
+_dailytasks_tool: Dailytasks | None = None
+_towerclimber_tool: TowerClimber | None = None
 
-tapscreen_tool = Tapscreen()
-startgame_tool = StartGame()
-dailytasks_tool = Dailytasks()
-towerclimber_tool = TowerClimber()
+
+def get_detector() -> IconDetector:
+    global _detector
+    if _detector is None:
+        with _tool_lock:
+            if _detector is None:
+                template_path = os.path.normpath(str(PROJECT_ROOT / 'templates' / 'button_template.png'))
+                try:
+                    _detector = IconDetector(template_path)
+                except Exception:
+                    _detector = IconDetector()
+    return _detector
+
+
+def get_screenshot_tool() -> MumuScreenshot:
+    """延迟创建截图工具，避免服务启动阶段触发 adb/scrcpy。"""
+    global _screenshot_tool
+    if _screenshot_tool is None:
+        with _tool_lock:
+            if _screenshot_tool is None:
+                _screenshot_tool = MumuScreenshot(auto_connect=False)
+                # 初始化时从配置加载截图方式（仅设置，不启动流）
+                _cfg = get_config()
+                if 'screenshot_method' in _cfg:
+                    _screenshot_tool.set_method(_cfg['screenshot_method'])
+    return _screenshot_tool
+
+
+def get_tapscreen_tool() -> Tapscreen:
+    global _tapscreen_tool
+    if _tapscreen_tool is None:
+        with _tool_lock:
+            if _tapscreen_tool is None:
+                _tapscreen_tool = Tapscreen()
+    return _tapscreen_tool
+
+
+def get_startgame_tool() -> StartGame:
+    global _startgame_tool
+    if _startgame_tool is None:
+        with _tool_lock:
+            if _startgame_tool is None:
+                _startgame_tool = StartGame()
+    return _startgame_tool
+
+
+def get_dailytasks_tool() -> Dailytasks:
+    global _dailytasks_tool
+    if _dailytasks_tool is None:
+        with _tool_lock:
+            if _dailytasks_tool is None:
+                _dailytasks_tool = Dailytasks()
+    return _dailytasks_tool
+
+
+def get_towerclimber_tool() -> TowerClimber:
+    global _towerclimber_tool
+    if _towerclimber_tool is None:
+        with _tool_lock:
+            if _towerclimber_tool is None:
+                _towerclimber_tool = TowerClimber()
+    return _towerclimber_tool
 
 # === 环境自检代码 (新增) ===
 print("="*60)
@@ -103,31 +157,33 @@ print("="*60)
 
 def generate_frames():
     """生成器函数，不断获取最新截图并编码为 MJPEG 流"""
+    global _preview_running
     last_time = time.time()
     frame_count = 0
     fps = 0
-    target_fps = 65
+    # 稳定优先：预览帧率不必过高
+    target_fps = 30
     frame_interval = 1.0 / target_fps
-    
-    # 新增：用于去重的变量
-    last_frame_obj = None
-    
+
     while True:
+        # 预览被关闭：主动结束生成器，让 /video_feed 连接尽快退出
+        with _preview_lock:
+            if not _preview_running:
+                break
+
         loop_start = time.time()
         try:
-            # 使用全局的 screenshot_tool 实例
+            screenshot_tool = get_screenshot_tool()
+            # 预览流：不需要检测游戏显示器ID；避免额外 adb dumpsys。
+            if screenshot_tool.screenshot_method == 'SCRCPY' and not screenshot_tool.running:
+                screenshot_tool.start_stream(detect_display=False)
             frame = screenshot_tool.capture()
             if frame is None:
                 time.sleep(0.1)
                 continue
 
-            # === 核心修改：FPS 统计逻辑 ===
-            # 只有当获取到的 frame 对象发生变化（内存地址不同）时，才视为有效的新帧
-            # Scrcpy 模式下，如果有新帧解码，latest_frame 会被替换为新的 numpy 对象
-            if frame is not last_frame_obj:
-                frame_count += 1
-                last_frame_obj = frame
-            # ===========================
+            # 统计推送 FPS（以推送速度为准，不依赖对象地址）
+            frame_count += 1
 
             # 计算 FPS
             current_time = time.time()
@@ -143,12 +199,20 @@ def generate_frames():
             #     preview_frame = cv2.resize(frame, (640, int(h * scale)))
             # else:
             #     preview_frame = frame
-            preview_frame = frame.copy() # Copy to avoid modifying original frame if used elsewhere
+            # capture() 返回的 frame 对象已是独立数组，这里避免额外 copy
+            preview_frame = frame
 
-            # 在画面上绘制 FPS
-            # 提示：如果 FPS 为 0，说明画面静止（可能是没操作，也可能是流断了）
-            color = (0, 255, 0) if fps > 0 else (0, 0, 255) # 动则绿，静则红
-            cv2.putText(preview_frame, f"FPS: {fps:.1f}", (10, 30), 
+            # 在画面上绘制 FPS + 卡帧提示（Scrcpy 卡帧时可快速肉眼识别）
+            stale = False
+            try:
+                age = screenshot_tool.frame_age()
+                stale = (age is not None and age > 1.5)
+            except Exception:
+                stale = False
+
+            color = (0, 0, 255) if stale else (0, 255, 0)
+            label = f"FPS: {fps:.1f}" + ("  (stale)" if stale else "")
+            cv2.putText(preview_frame, label, (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
             # 将 numpy array 编码为 jpg
@@ -158,14 +222,16 @@ def generate_frames():
             
             frame_bytes = buffer.tobytes()
             # 生成 MJPEG 帧格式
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             
             # 控制帧率上限
             elapsed = time.time() - loop_start
             if elapsed < frame_interval:
                 time.sleep(frame_interval - elapsed)
 
+        except (GeneratorExit, ConnectionResetError, BrokenPipeError):
+            # 客户端断开连接：正常退出
+            return
         except Exception as e:
             print(f"Stream error: {e}")
             time.sleep(1)
@@ -176,17 +242,28 @@ def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
+# 预览(监控)状态：只控制 /video_feed 是否推送，不等同于底层截图流 running
+_preview_running = False
+_preview_lock = Lock()
+
 @app.route('/stream/start')
 def start_stream():
-    """手动开启截图流"""
-    screenshot_tool.start_stream()
-    return jsonify({'ok': True, 'msg': 'Stream started'})
+    """开启预览并启动截图流"""
+    global _preview_running
+    with _preview_lock:
+        _preview_running = True
+    # 预览启动不检测游戏显示器ID，任务启动时再检测
+    get_screenshot_tool().start_stream(detect_display=False)
+    return jsonify({'ok': True, 'msg': 'Preview started'})
 
 @app.route('/stream/stop')
 def stop_stream():
-    """手动停止截图流"""
-    screenshot_tool.stop_stream()
-    return jsonify({'ok': True, 'msg': 'Stream stopped'})
+    """停止预览（稳定优先：不停止底层截图流，避免断流/重连抖动）"""
+    global _preview_running
+    with _preview_lock:
+        _preview_running = False
+
+    return jsonify({'ok': True, 'msg': 'Preview stopped'})
 
 """任务控制：支持启动 / 停止 / 暂停 / 恢复。"""
 _task_stop_event: Event | None = None
@@ -222,11 +299,11 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
     global _task_state
     try:
         if task_type == 'start_game':
-            startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
+            get_startgame_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'dailytasks':
-            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
+            get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
         elif task_type == 'tower_climbing':
-            towerclimber_tool.run(
+            get_towerclimber_tool().run(
                 attribute_type=kwargs.get('attribute_type'),
                 max_runs=kwargs.get('max_runs', 0),
                 stop_on_weekly=kwargs.get('stop_on_weekly', False),
@@ -235,13 +312,13 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
                 sleep_fn=_interruptible_sleep
             )
         elif task_type == 'combo':
-            startgame_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
+            get_startgame_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
             if not stop_event.is_set():
-                dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
+                get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
         elif task_type == 'daily_and_tower':
-            dailytasks_tool.run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
+            get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
             if not stop_event.is_set():
-                towerclimber_tool.run(
+                get_towerclimber_tool().run(
                     attribute_type=kwargs.get('attribute_type'),
                     max_runs=kwargs.get('max_runs', 0),
                     stop_on_weekly=kwargs.get('stop_on_weekly', False),
@@ -293,6 +370,13 @@ def task_start():
 
     if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing', 'daily_and_tower'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
+
+    # 任务启动前置检查：此处才做 adb 连接/显示器ID检测，避免服务启动阶段触发 adb。
+    try:
+        get_screenshot_tool().preflight_for_task(detect_display=True)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': f'任务启动前检测失败: {exc}'}), 400
+
     with _task_lock:
         if _task_thread and _task_thread.is_alive():
             return jsonify({'ok': False, 'error': '已有任务在执行'}), 409
@@ -484,7 +568,7 @@ def health():
 @app.route('/start_game', methods=['POST'])
 def start_game():
     try:
-        startgame_tool.run()
+        get_startgame_tool().run()
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -493,7 +577,7 @@ def start_game():
 @app.route('/start_dailytasks', methods=['POST'])
 def start_dailytasks():
     try:
-        dailytasks_tool.run()
+        get_dailytasks_tool().run()
         return jsonify({'ok': True})
     except Exception as e:
         import traceback
@@ -504,15 +588,27 @@ def start_dailytasks():
 @app.route('/stream/status')
 def api_stream_status():
     """获取流状态"""
+    global _preview_running
+    with _preview_lock:
+        preview_running = _preview_running
+    screenshot_tool = get_screenshot_tool()
     return jsonify({
-        "running": screenshot_tool.running,
-        "method": screenshot_tool.screenshot_method
+        "ok": True,
+        # running 表示“预览是否开启”（给前端按钮用）
+        "running": preview_running,
+        "method": screenshot_tool.screenshot_method,
+        # stream_alive 表示“底层截图流是否在跑”（调试/稳定性用）
+        "stream_alive": screenshot_tool.running,
     })
 
 @app.route('/api/test_latency', methods=['POST'])
 def test_latency():
     """测试当前截图方式的延迟"""
     try:
+        screenshot_tool = get_screenshot_tool()
+        # 延迟测试不必检测游戏显示器ID；任务启动时再检测
+        if screenshot_tool.screenshot_method == 'SCRCPY' and not screenshot_tool.running:
+            screenshot_tool.start_stream(detect_display=False)
         # 记录开始时间
         start_time = time.time()
         
@@ -549,9 +645,9 @@ def config_endpoint():
 
         updated = update_config(payload)
         
-        # 如果配置中包含 screenshot_method，更新 screenshot_tool
+        # 如果配置中包含 screenshot_method，更新 screenshot_tool（仅设置，不主动启动流）
         if 'screenshot_method' in updated:
-            screenshot_tool.set_method(updated['screenshot_method'])
+            get_screenshot_tool().set_method(updated['screenshot_method'])
             
         return jsonify({'ok': True, 'config': updated})
     except Exception as exc:

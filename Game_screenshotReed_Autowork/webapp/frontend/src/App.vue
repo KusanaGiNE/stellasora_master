@@ -549,8 +549,9 @@ export default {
       try {
         const res = await fetch(this.apiUrl('/stream/status'));
         const data = await res.json();
-        if (data.ok) {
-          this.streamRunning = data.running;
+        // 兼容旧后端（无 ok 字段）与新后端（有 ok 字段）
+        if (data && typeof data.running !== 'undefined') {
+          this.streamRunning = !!data.running;
         }
       } catch (e) {
         // ignore
