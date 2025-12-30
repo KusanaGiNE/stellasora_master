@@ -197,10 +197,6 @@ class TowerClimber(BaseTask):
         if not _sleep(2): return
 
         #region出发爬塔
-        # 使用 click_until_appear 尝试进入爬塔界面
-        # 目标：点击(1158, 637)（出发按钮？），直到检测到 tower_detector
-        # 由于出发按钮没有detector，我们只能手动循环，或者创建一个临时的“虚拟detector”
-        # 但 click_until_appear 支持 target_detector=None，我们可以手动点击
         
         print("尝试进入爬塔界面...")
         entered_tower = False
@@ -243,8 +239,7 @@ class TowerClimber(BaseTask):
                 print(f"已达到指定次数 {max_runs}，结束任务")
                 break
             
-            # 2. 检查周常 (假设在进入塔后的界面可以看到进度，或者需要返回上一级查看)
-            # 由于不知道具体界面布局，这里假设在当前界面可以检查，或者在每次战斗前检查
+            
             if stop_on_weekly:
                 progress = check_weekly_progress()
                 if progress >= 3000:
@@ -343,7 +338,7 @@ class TowerClimber(BaseTask):
                                     tapscreen_tool.tap_screen(x_buy, y_buy)  # 点击购买按钮
                                     if not _sleep(2): return
                                     
-                                    # 引入计数器，实现动态等待
+                                    
                                     no_response_count = 0
                                     
                                     while True:
@@ -372,7 +367,7 @@ class TowerClimber(BaseTask):
                                             if not _sleep(2): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(3): return
-                                            no_response_count = 0 # 重置计数器
+                                            no_response_count = 0 
                                             continue
                                         (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
                                         if x_skill is not None:
@@ -383,19 +378,17 @@ class TowerClimber(BaseTask):
                                             if not _sleep(1): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(2): return
-                                            no_response_count = 0 # 重置计数器
+                                            no_response_count = 0 
                                             continue
                                         
-                                        # === 动态等待逻辑 ===
-                                        # 如果代码运行到这里，说明上述所有图标都没找到（界面卡住或加载中）
+                                        
                                         no_response_count += 1
                                         if no_response_count >= 3:
-                                            # 连续3次未检测到状态，判定为卡顿，主动休眠1秒防止ADB崩溃
-                                            # 正常流畅时不会触发此逻辑，保证效率
+                                           
                                             if not _sleep(1): return
-                                        # ===================
+                                        
 
-                                else:#金钱不足，跳出购买循环
+                                else:
                                     break
 
                             print("优惠商品购买完成")
@@ -516,7 +509,7 @@ class TowerClimber(BaseTask):
                                     tapscreen_tool.tap_screen(x_buy, y_buy)  # 点击购买按钮
                                     if not _sleep(2): return
                                     
-                                    # 引入计数器，实现动态等待
+                                   
                                     no_response_count = 0
                                     
                                     while True:
@@ -545,7 +538,7 @@ class TowerClimber(BaseTask):
                                             if not _sleep(2): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(3): return
-                                            no_response_count = 0 # 重置计数器
+                                            no_response_count = 0 
                                             continue
                                         (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
                                         if x_skill is not None:
@@ -556,13 +549,13 @@ class TowerClimber(BaseTask):
                                             if not _sleep(1): return
                                             tapscreen_tool.tap_screen(157, 341) 
                                             if not _sleep(2): return
-                                            no_response_count = 0 # 重置计数器
+                                            no_response_count = 0 
                                             continue
                                         
-                                        # 防止网卡adb截图崩溃
+                                        
                                         no_response_count += 1
                                         if no_response_count >= 2:
-                                            # 连续2次未检测到状态，判定为卡顿
+                                            
                                             
                                             if not _sleep(1): return
                                        

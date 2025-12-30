@@ -80,7 +80,7 @@ class BaseTask:
 
             screenshot = self.screenshot_tool.capture()
             
-            # 1. 检查是否成功（预期画面是否已经出现）
+            # 1. 检查是否成功
             (ex, ey), _ = expected_detector.find_icon(screenshot)
             if ex is not None:
                 print("预期画面已出现，操作成功")

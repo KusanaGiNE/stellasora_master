@@ -31,13 +31,11 @@ DEFAULT_PORT = 5000
 
 
 def resource_root() -> Path:
-    # 修改为适应“源码外置”模式
-    # 如果是打包环境 (frozen)，资源根目录应该是 exe 所在的目录 (sys.executable 的父目录)
-    # 因为我们将 webapp 和 core 文件夹放在了 exe 旁边
+    
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     
-    # 如果是源码运行环境，则使用当前文件所在目录
+   
     return Path(__file__).resolve().parent
 
 
@@ -48,7 +46,7 @@ def ensure_sys_path(root: Path) -> None:
 
 
 def install_missing_packages(packages: list[str]) -> None:
-    # Map package names to import names
+   
     package_to_module = {
         "opencv-python": "cv2",
         "scrcpy-client": "scrcpy",
@@ -100,7 +98,7 @@ def main() -> None:
     root = resource_root()
     ensure_sys_path(root)
 
-    # Only attempt to install dependencies when not running from PyInstaller bundle.
+
     if not getattr(sys, "_MEIPASS", None):
         install_missing_packages(REQUIRED_PACKAGES)
 

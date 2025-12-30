@@ -432,15 +432,14 @@ class Dailytasks(BaseTask):
                         
                         # 1.回到顶部
                         print("正在返回列表顶部...")
-                        for i in range(15): # 防止死循环，最大尝试15次
+                        for i in range(15): 
                             if stop_event and stop_event.is_set(): return
                             screenshot_before = screenshot_tool.capture()
                             slide_tool.swipe_down(271)
                             if not _sleep(2): return
                             screenshot_after = screenshot_tool.capture()
                             
-                            # Debug info: 使用更宽松的阈值 (0.01 = 1%) 以容忍背景动画
-                            # 如果是静态画面，差异通常极小。如果是滚动，差异通常很大。
+                            
                             is_same = self.screenshots_almost_same(screenshot_before, screenshot_after, change_ratio=0.01)
                             
                             # 计算并打印实际差异率以便调试
@@ -458,7 +457,7 @@ class Dailytasks(BaseTask):
 
                         # 2. 查找角色
                         found = False
-                        for _ in range(20): # 防止死循环
+                        for _ in range(20): 
                             if stop_event and stop_event.is_set(): return
                             
                             screenshot1 = screenshot_tool.capture()
@@ -468,37 +467,36 @@ class Dailytasks(BaseTask):
                                 found = True
                                 break
                             
-                            # 当前页未找到，尝试向下滑动
+                            
                             print(f"当前页未找到 {char_key}，尝试滑动...")
                             screenshot_before = screenshot1
                             slide_tool.swipe_up(271)
                             if not _sleep(1.5): return
                             screenshot_after = screenshot_tool.capture()
                             
-                            # Debug info
                             diff = cv2.absdiff(screenshot_before, screenshot_after)
                             gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
                             _, mask = cv2.threshold(gray, 3, 255, cv2.THRESH_BINARY)
                             ratio = np.count_nonzero(mask) / mask.size
                             print(f"Debug: 查找角色滑动, 画面变化率: {ratio:.6f}")
 
-                            # 判断是否到底
+                          
                             if self.screenshots_almost_same(screenshot_before, screenshot_after, change_ratio=0.01):
                                 print(f"已滑动至底部，仍未找到角色: {char_key}")
                                 break
 
                         if found:
                             print(f"找到角色 {char_key}")
-                            # 1. 点击角色
+                           
                             tapscreen_tool.tap_screen(xc, yc)
                             if not _sleep(1): return
 
-                            # 2. 点击进入邀约 -> 等待确认邀约
+                      
                             if not self.click_until_appear(target_pos=(895, 647), expected_detector=confirm_detector, max_retry=2, stop_event=stop_event):
                                 print(f"进入邀约失败: {char_key}")
                                 continue
 
-                            # 3. 点击确认邀约 -> 等待选择
+                            
                             if not self.click_until_appear(target_detector=confirm_detector, expected_detector=select_detector, stop_event=stop_event):
                                 print(f"确认邀约失败: {char_key}")
                                 continue
@@ -509,20 +507,19 @@ class Dailytasks(BaseTask):
                                 if not _sleep(1): return
                             
                         
-                            # 4. 处理剧情（点击选择 -> 跳过 -> 送礼）
+                           
                             print("正在处理剧情...")
                             gift_found = False
-                            for _ in range(20): # Max retry
+                            for _ in range(20): 
                                 if stop_event and stop_event.is_set(): return
                                 screenshot = screenshot_tool.capture()
-                                
-                                # 检查送礼按钮
+                               
                                 (xg, yg), _ = sendgift_detector.find_icon(screenshot)
                                 if xg:
                                     gift_found = True
                                     break
                                 
-                                # 检查跳过按钮
+                                
                                 (xskip, yskip), _ = skip_detector.find_icon(screenshot)
                                 if xskip:
                                     print("点击跳过")
@@ -538,8 +535,7 @@ class Dailytasks(BaseTask):
                                 print(f"剧情处理超时: {char_key}")
                                 continue
 
-                            # 5. 送礼流程
-                            # 此时 xg, yg 是送礼按钮坐标
+                            
                             tapscreen_tool.tap_screen(xg, yg)
                             if not _sleep(1): return
                             
@@ -548,8 +544,7 @@ class Dailytasks(BaseTask):
                             
                             tapscreen_tool.tap_screen(1099, 633) # 点击赠送
                             
-                            # 6. 等待赠送完成并返回
-                            # 等待5秒动画
+                            
                             if not _sleep(5): return
                             
                             # 点击返回直到回到邀约列表
