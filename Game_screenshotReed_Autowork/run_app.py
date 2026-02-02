@@ -1,4 +1,4 @@
-"""Application bootstrap for the Stellasora Master automation suite."""
+
 from __future__ import annotations
 
 import importlib
@@ -11,7 +11,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-# Explicit imports to ensure PyInstaller bundles them
+
 import flask
 import cv2
 import numpy

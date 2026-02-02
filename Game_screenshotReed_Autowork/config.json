@@ -2,7 +2,7 @@
   "adb_path": "E:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
   "default_instance": 1,
   "adb_port": 16384,
-  "server_lang": "zh-CN",
+  "server_lang": "zh-Hant",
   "emulator_type": "MuMu12",
   "emulator_configs": {
     "Custom": {

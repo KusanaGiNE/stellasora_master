@@ -5,6 +5,7 @@ import base64
 import time
 import subprocess
 import urllib.request
+import urllib.error
 import json
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, Response
@@ -28,6 +29,34 @@ from core.config import get_config, update_config
 import threading
 
 app = Flask(__name__, static_folder=str(BASE_DIR / 'static'), static_url_path='', template_folder=str(BASE_DIR / 'templates'))
+# === 更新检查网络兜底 ===
+def _open_no_proxy(req: urllib.request.Request, timeout: int):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return opener.open(req, timeout=timeout)
+
+
+def _open_default(req: urllib.request.Request, timeout: int):
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _fetch_json_with_fallback(url: str) -> dict:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "StellasoraMasterUpdater/1.0"}
+    )
+    last_error: Exception | None = None
+    for timeout in (15, 30):
+        for opener in (_open_no_proxy, _open_default):
+            try:
+                with opener(req, timeout=timeout) as resp:
+                    if getattr(resp, "status", 200) != 200:
+                        raise RuntimeError(f"HTTP 状态码: {getattr(resp, 'status', 'unknown')}")
+                    raw = resp.read()
+                    return json.loads(raw.decode("utf-8"))
+            except Exception as e:
+                last_error = e
+                continue
+    raise RuntimeError(f"获取更新信息失败: {last_error}") from last_error
 
 @app.route('/system/version', methods=['GET'])
 def get_current_version():
@@ -41,14 +70,10 @@ def get_current_version():
 
 @app.route('/system/check_update', methods=['GET'])
 def check_update_proxy():
-    url = "http://103.239.245.46:52176/version.json"
+    url = "http://103.205.254.65:52176/version.json"
     try:
-        with urllib.request.urlopen(url, timeout=5) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode('utf-8'))
-                return jsonify(data)
-            else:
-                return jsonify({'error': f'Server returned status {response.status}'}), 502
+        data = _fetch_json_with_fallback(url)
+        return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -175,8 +200,8 @@ def generate_frames():
         try:
             screenshot_tool = get_screenshot_tool()
             # 预览流：不需要检测游戏显示器ID；避免额外 adb dumpsys。
-            if screenshot_tool.screenshot_method == 'SCRCPY' and not screenshot_tool.running:
-                screenshot_tool.start_stream(detect_display=False)
+            # 同时对 RAW/SCRCPY 都做一次健康检查，让卡死能自动自愈。
+            screenshot_tool.ensure_stream(detect_display=False)
             frame = screenshot_tool.capture()
             if frame is None:
                 time.sleep(0.1)
@@ -253,7 +278,7 @@ def start_stream():
     with _preview_lock:
         _preview_running = True
     # 预览启动不检测游戏显示器ID，任务启动时再检测
-    get_screenshot_tool().start_stream(detect_display=False)
+    get_screenshot_tool().ensure_stream(detect_display=False)
     return jsonify({'ok': True, 'msg': 'Preview started'})
 
 @app.route('/stream/stop')
@@ -301,7 +326,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         if task_type == 'start_game':
             get_startgame_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
         elif task_type == 'dailytasks':
-            get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
+            get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'), add_friend_count=kwargs.get('add_friend_count', 15))
         elif task_type == 'tower_climbing':
             get_towerclimber_tool().run(
                 attribute_type=kwargs.get('attribute_type'),
@@ -314,9 +339,9 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
         elif task_type == 'combo':
             get_startgame_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep)
             if not stop_event.is_set():
-                get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
+                get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'), add_friend_count=kwargs.get('add_friend_count', 15))
         elif task_type == 'daily_and_tower':
-            get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'))
+            get_dailytasks_tool().run(stop_event=stop_event, sleep_fn=_interruptible_sleep, selected_tasks=kwargs.get('selected_tasks'), invitation_characters=kwargs.get('invitation_characters'), add_friend_count=kwargs.get('add_friend_count', 15))
             if not stop_event.is_set():
                 get_towerclimber_tool().run(
                     attribute_type=kwargs.get('attribute_type'),
@@ -366,7 +391,20 @@ def task_start():
     climb_type = data.get('climb_type')
     daily_sub_tasks = data.get('daily_sub_tasks')
     invitation_characters = data.get('invitation_characters')
-    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, daily_sub_tasks={daily_sub_tasks}, invitation_characters={invitation_characters}")
+    add_friend_count = data.get('add_friend_count', 15)
+    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, daily_sub_tasks={daily_sub_tasks}, invitation_characters={invitation_characters}, add_friend_count={add_friend_count}")
+
+  
+    normalized_invitation = None
+    if isinstance(invitation_characters, list):
+        normalized_invitation = [(str(v) if v else "") for v in invitation_characters[:5]]
+        while len(normalized_invitation) < 5:
+            normalized_invitation.append("")
+        try:
+            update_config({'invitation_characters': normalized_invitation})
+        except Exception as exc:
+           
+            print('邀约角色配置持久化失败:', exc)
 
     if task_type not in ('start_game','dailytasks','combo','debug_sleep','debug_loop', 'tower_climbing', 'daily_and_tower'):
         return jsonify({'ok': False, 'error': '未知任务类型'}), 400
@@ -396,7 +434,8 @@ def task_start():
         
         if task_type in ('dailytasks', 'daily_and_tower', 'combo'):
             kwargs['selected_tasks'] = daily_sub_tasks
-            kwargs['invitation_characters'] = invitation_characters
+            kwargs['invitation_characters'] = normalized_invitation if normalized_invitation is not None else invitation_characters
+            kwargs['add_friend_count'] = add_friend_count
 
         _task_thread = Thread(target=_run_task, args=(task_type, _task_stop_event), kwargs=kwargs, daemon=True)
         _task_thread.start()

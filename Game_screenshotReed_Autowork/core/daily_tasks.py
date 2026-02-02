@@ -25,6 +25,96 @@ class Dailytasks(BaseTask):
         self.display_tool = Showdetector(output_dir="test")
         # self.slide_tool = Slide() # Moved to BaseTask
 
+    def find_multi_icons(
+        self,
+        screenshot,
+        detector,
+        threshold=0.85,
+        min_dist=30,
+        target_width=1280,
+        region=None,
+    ):
+        """在截图中查找所有匹配的图标。
+
+        - 支持 region=(x,y,w,h) 限定搜索区域（基于 1280x720 坐标）
+        """
+        if screenshot is None or detector is None:
+            return []
+
+        template = getattr(detector, "template", None)
+        if template is None:
+            print("Error: 检测器未加载模板图片")
+            return []
+
+        # 1) 分辨率适配（一般截图已被强制缩放到 1280x720，但这里做兜底）
+        h_img, w_img = screenshot.shape[:2]
+        scale_ratio = 1.0
+        if abs(w_img - target_width) > 10:
+            scale_ratio = target_width / w_img
+            new_h = int(h_img * scale_ratio)
+            screenshot_resized = cv2.resize(screenshot, (target_width, new_h))
+        else:
+            screenshot_resized = screenshot
+
+        # 2) 裁剪 ROI
+        if region:
+            rx, ry, rw, rh = region
+            rx = int(rx * scale_ratio)
+            ry = int(ry * scale_ratio)
+            rw = int(rw * scale_ratio)
+            rh = int(rh * scale_ratio)
+            h_res, w_res = screenshot_resized.shape[:2]
+            rx = max(0, min(rx, w_res - 1))
+            ry = max(0, min(ry, h_res - 1))
+            rw = max(1, min(rw, w_res - rx))
+            rh = max(1, min(rh, h_res - ry))
+            search_img = screenshot_resized[ry : ry + rh, rx : rx + rw]
+            offset_x, offset_y = rx, ry
+        else:
+            search_img = screenshot_resized
+            offset_x, offset_y = 0, 0
+
+        matches = []  # (x, y, score)
+
+        th, tw = template.shape[:2]
+        sh, sw = search_img.shape[:2]
+        if sh < th or sw < tw:
+            return []
+
+        result = cv2.matchTemplate(search_img, template, cv2.TM_CCOEFF_NORMED)
+        ys, xs = np.where(result >= threshold)
+        for (x0, y0) in zip(xs, ys):
+            score = float(result[y0, x0])
+            cx = x0 + tw // 2 + offset_x
+            cy = y0 + th // 2 + offset_y
+            # 还原到原始 screenshot 坐标
+            fx = int(cx / scale_ratio)
+            fy = int(cy / scale_ratio)
+            matches.append((fx, fy, score))
+
+        if not matches:
+            return []
+
+        # 4) 去重：按 score 从高到低，保留相距 >= min_dist 的点
+        matches.sort(key=lambda t: t[2], reverse=True)
+        picked = []
+        min_dist2 = float(min_dist) * float(min_dist)
+        for x, y, score in matches:
+            keep = True
+            for px, py in picked:
+                dx = x - px
+                dy = y - py
+                if (dx * dx + dy * dy) < min_dist2:
+                    keep = False
+                    break
+            if keep:
+                picked.append((x, y))
+
+        # 返回按 y/x 排序，便于逐行处理
+        picked.sort(key=lambda p: (p[1], p[0]))
+        return picked
+   
+
     # 使用 property 实现懒加载，用到时才读取图片
     @property
     def maintitle_detector(self): return self.load_detector("mainTitle_icon/Market.png")
@@ -60,8 +150,24 @@ class Dailytasks(BaseTask):
     def skip_detector(self): return self.load_detector("charactercard/icon/skip.png")
     @property
     def invitation_detector(self): return self.load_detector("charactercard/icon/invitationpagecheak.png")
+    @property
+    def frined_detector(self): return self.load_detector("mainTitle_icon/frined.png")
+    @property
+    def frinedpagecheak_detector(self): return self.load_detector("friend/friendpagecheak.png")
+    @property
+    def switch_detector(self): return self.load_detector("friend/switch.png")
+    @property
+    def deletefriend_detector(self): return self.load_detector("friend/deletefriend.png")
+    @property
+    def dayunlogin_detector(self): return self.load_detector("friend/dayunlogin.png")
+    @property
+    def favorite_star_detector(self): return self.load_detector("friend/favorite_star.png")  
+    @property
+    def recommendfriend_detector(self): return self.load_detector("friend/recommendfriend.png")  
+    @property
+    def addfriend_detector(self): return self.load_detector("friend/addfriend.png")  
 
-    # 角色卡加载
+    # region角色卡加载
     @property
     def c_xiaohe_detector(self): return self.load_detector("charactercard/xiaohe.png")
     @property
@@ -118,12 +224,54 @@ class Dailytasks(BaseTask):
     def c_telisha_detector(self): return self.load_detector("charactercard/telisha.png")
     @property
     def c_xingzi_detector(self): return self.load_detector("charactercard/xingzi.png")
+    @property
+    def c_feilencui_detector(self): return self.load_detector("charactercard/feilencui.png")
+    
+
+    def _find_in_region(self, detector, screenshot, region, *, threshold: float = 0.82):
+        """在指定 region 内查找图标。
+
+        region: (x, y, w, h)（以 1280x720 基准坐标）
+
+        注意：这里直接使用 IconDetector.find_icon(..., region=region)，让它的
+        “分辨率适配 + region 同步缩放”逻辑生效。
+        """
+        if screenshot is None:
+            return (None, None), 0.0
+        return detector.find_icon(screenshot, threshold=threshold, region=region)
+
+    def _is_gray_icon(self, screenshot, cx, cy, size=20, s_threshold=40):
+        """
+        判断指定中心点附近的图标是否为灰色（低饱和度）。
+        用于区分“灰色时钟”（离线>24h）和“蓝绿色时钟”（离线<24h）。
         
-    def run(self, stop_event=None, sleep_fn=None, selected_tasks=None, invitation_characters=None):
+        Args:
+            screenshot: BGR 格式截图
+            cx, cy: 图标中心坐标
+            size: 采样区域大小
+            s_threshold: 饱和度阈值 (0-255)，低于此值视为灰色
+        """
+        h, w = screenshot.shape[:2]
+        x1 = max(0, int(cx - size // 2))
+        y1 = max(0, int(cy - size // 2))
+        x2 = min(w, int(cx + size // 2))
+        y2 = min(h, int(cy + size // 2))
+        
+        if x2 <= x1 or y2 <= y1:
+            return False
+            
+        roi = screenshot[y1:y2, x1:x2]
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        s_mean = np.mean(hsv[:, :, 1]) # S channel
+        
+        # print(f"Debug: Icon at ({cx},{cy}) Saturation: {s_mean:.2f}")
+        return s_mean < s_threshold
+
+    def run(self, stop_event=None, sleep_fn=None, selected_tasks=None, invitation_characters=None, add_friend_count=15):
         # 开启截图流，提高效率
         self.screenshot_tool.start_stream()
         try:
-            self._run_internal(stop_event, sleep_fn, selected_tasks, invitation_characters)
+            self._run_internal(stop_event, sleep_fn, selected_tasks, invitation_characters, add_friend_count)
         finally:
             self.screenshot_tool.stop_stream()
 
@@ -149,12 +297,12 @@ class Dailytasks(BaseTask):
         
         return changed_ratio <= change_ratio
 
-    def _run_internal(self, stop_event, sleep_fn, selected_tasks, invitation_characters):
+    def _run_internal(self, stop_event, sleep_fn, selected_tasks, invitation_characters, add_friend_count):
         screenshot_tool = self.screenshot_tool
         tapscreen_tool = self.tapscreen_tool
         display_tool = self.display_tool
         slide_tool = self.slide_tool
-        
+
         if selected_tasks is None:
             selected_tasks = ['interaction', 'market_reward', 'commission', 'gift', 'card_upgrade', 'character_upgrade', 'task_reward']
         
@@ -176,8 +324,14 @@ class Dailytasks(BaseTask):
         sendgift_detector = self.sendgift_detector
         skip_detector = self.skip_detector
         invitation_detector = self.invitation_detector
-
-
+        frined_detector = self.frined_detector
+        friendpagecheak_detector = self.frinedpagecheak_detector
+        switch_detector = self.switch_detector
+        deletefriend_detector = self.deletefriend_detector
+        dayunlogin_detector = self.dayunlogin_detector
+        favorite_star_detector = self.favorite_star_detector  
+        recommendfriend_detector = self.recommendfriend_detector  
+        addfriend_detector = self.addfriend_detector
 
         c_xiaohe_detector = self.c_xiaohe_detector
         c_xiya_detector = self.c_xiya_detector
@@ -207,6 +361,7 @@ class Dailytasks(BaseTask):
         c_hupo_detector = self.c_hupo_detector
         c_telisha_detector = self.c_telisha_detector
         c_xingzi_detector = self.c_xingzi_detector
+        c_feilencui_detector = self.c_feilencui_detector
         
 
 
@@ -237,6 +392,9 @@ class Dailytasks(BaseTask):
             return True
 
 
+       
+
+
         # ================== 开始执行日常任务各步骤 ==================
 
         
@@ -250,12 +408,10 @@ class Dailytasks(BaseTask):
             print("主页面角色互动完成")
             if not _sleep(2): return
 
-        # region领取商店随机奖励
+    
         if 'market_reward' in selected_tasks:
             print("开始执行领取商店随机奖励")
-            
-            # 使用 click_until_appear 替换原有的 tap + sleep
-            # 尝试点击“商店入口”，直到检测到“采购界面”
+          
             success = self.click_until_appear(
                 target_detector=market_detector,
                 expected_detector=marketpagecheak_detector,
@@ -267,8 +423,7 @@ class Dailytasks(BaseTask):
                 print("进入商店失败，跳过此任务")
                 if stop_event and stop_event.is_set(): return
             else:
-                # 点击领取随机奖励
-                # 这里也可以优化，假设点击后会有弹窗或按钮变灰，暂时保留硬编码点击
+                
                 tapscreen_tool.tap_screen(73, 636)
                 if not _sleep(1): return
                 tapscreen_tool.tap_screen(73, 636)
@@ -307,7 +462,7 @@ class Dailytasks(BaseTask):
                     for _ in range(10):
                         if stop_event and stop_event.is_set(): return
                         tapscreen_tool.tap_screen(68, 49)
-                        if not _sleep(1): return
+                        if not _sleep(2): return
                         screenshot1 = screenshot_tool.capture()
                         (x6, y6), conf2 = commissionagain_detector.find_icon(screenshot1)
                         if x6:
@@ -325,6 +480,285 @@ class Dailytasks(BaseTask):
                 print("进入委托界面失败")
 
             if not _sleep(2): return
+
+
+         # region好友管理
+        if 'friend_manage' in selected_tasks:
+            print("开始执行好友管理")
+            if not self.click_until_appear(
+                target_pos=(1090, 42),
+                expected_detector=friendpagecheak_detector,
+                max_retry=2,
+                interval=2.0,
+                stop_event=stop_event
+            ):
+                print("任务执行异常")
+                Back2maintitle()
+            else:
+                # 点左侧“好友列表”（保持你原来的固定坐标逻辑）
+                
+                print("已进入好友界面，准备进入好友列表")
+                if not _sleep(1): return
+                tapscreen_tool.tap_screen(125, 214)
+                if not _sleep(1): return
+                # 注意：click_until_appear 会先检测 expected_detector，如果它“已经存在”就会直接成功返回，
+                # 不会执行 target_pos 点击；这里改为显式检查 + 必要时强制点击。
+                switch_region = (0, 120, 520, 560)  # 排除顶栏，避免把返回键误识别成 switch
+
+                def _ensure_friend_list() -> bool:
+                    for _ in range(3):
+                        if stop_event and stop_event.is_set():
+                            return False
+                        shot = screenshot_tool.capture()
+                        (sx, sy), _ = switch_detector.find_icon(shot, region=switch_region)
+                        if sx is not None:
+                            return True
+                        tapscreen_tool.tap_screen(125, 214)
+                        if not _sleep(0.8):
+                            return False
+                    return False
+
+                if not _ensure_friend_list():
+                    print("进入好友列表失败")
+                    Back2maintitle()
+                else:
+                    # 进入“管理/可删除”状态：限制识别区域，避免误点
+                    print("已进入好友列表，准备切换到可删除状态")
+                    if not self.click_until_appear(
+                        target_detector=switch_detector,
+                        expected_detector=deletefriend_detector,
+                        max_retry=10,
+                        interval=1.0,
+                        stop_event=stop_event,
+                        region=switch_region,
+                    ):
+                        print("任务执行异常")
+                        Back2maintitle()
+                    else:
+
+                        print("已进入好友管理界面")
+                        if not _sleep(1): return
+
+                        while True:
+                            if stop_event and stop_event.is_set():
+                                print("收到停止信号")
+                                return
+
+                            print("开始扫描大于一天未登录好友...")
+                            screenshot = screenshot_tool.capture()
+                            # dayunlogin 图标（灰色时钟）较小：不限定 region 时建议稍微提高阈值，减少误匹配
+                            unlogin_friends = self.find_multi_icons(
+                                screenshot,
+                                dayunlogin_detector,
+                                threshold=0.80, # 稍微提高阈值
+                                min_dist=50,
+                            )
+
+                            action_taken = False
+
+                            if unlogin_friends: #删除好友
+                                print(f"发现 {len(unlogin_friends)} 个潜在目标，开始筛选...")
+                                for idx, (dx, dy) in enumerate(unlogin_friends):
+                                    if stop_event and stop_event.is_set():
+                                        return
+
+                                    # 颜色校验：排除蓝绿色时钟
+                                    if not self._is_gray_icon(screenshot, dx, dy, s_threshold=45):
+                                        print(f"第 {idx + 1} 个目标 ({int(dx)},{int(dy)}) 近期登录，跳过")
+                                        continue
+
+                                    print(f"处理第 {idx + 1} 个好友: clock_pos=({int(dx)}, {int(dy)}) (Gray Verified)")
+
+                                   
+                                    row_top = max(0, int(dy) - 40) # 扩大垂直范围
+                                    row_h = 140
+                                    
+                                    
+                                    search_x = 0
+                                    search_w = 1280 - search_x
+                                    if search_w < 100: search_w = 100 # 兜底
+
+                                    # 判定是否收藏
+                                    # 
+                                    (sx, sy), sconf = self._find_in_region(
+                                        favorite_star_detector,
+                                        screenshot,
+                                        (search_x, row_top, search_w, row_h),
+                                        threshold=0.65 
+                                    )
+                                    if sx is not None:
+                                        print(f"第 {idx + 1} 个为收藏好友(星星conf={sconf:.2f})，跳过删除")
+                                        continue
+
+                                    # 2) 找到该行的删除按钮
+                                    (bx, by), bconf = self._find_in_region(
+                                        deletefriend_detector,
+                                        screenshot,
+                                        (search_x, row_top, search_w, row_h),
+                                        threshold=0.65
+                                    )
+                                    if bx is None:
+                                        print(f"第 {idx + 1} 个目标未找到删除按钮，跳过(bconf={bconf:.2f})")
+                                        continue
+
+                                    print(f"删除第 {idx + 1} 个好友：delete=({bx},{by}) conf={bconf:.2f}")
+                                    if not self.click_until_appear(
+                                        target_pos=(bx, by),
+                                        expected_detector=confirm_detector,
+                                        max_retry=5,
+                                        interval=1.0,
+                                        stop_event=stop_event,
+                                    ):
+                                        print("点击删除好友失败，跳过此好友")
+                                        continue
+
+                                    else:
+                                        if not self.click_until_appear(
+                                            target_detector=confirm_detector,
+                                            expected_detector=friendpagecheak_detector,
+                                            max_retry=5,
+                                            interval=1.0,
+                                            stop_event=stop_event,
+                                        ):
+                                            print("确认删除好友失败，跳过此好友")
+                                            continue
+                                        else:
+                                            print("删除好友成功，重新扫描列表...")
+                                            if not _sleep(1): return
+                                            # 删除成功后，列表发生变化，必须跳出循环重新扫描
+                                            action_taken = True
+                                            break
+
+                            if not action_taken:  #滑动
+                                    print(f"当前页未找到可删除的好友（或已全部处理），尝试滑动...")
+                                    screenshot_before = screenshot_tool.capture()
+                                    slide_tool.swipe_up(813)
+                                    if not _sleep(3): return
+                                    
+                                    screenshot_after = screenshot_tool.capture()
+    
+                                    diff = cv2.absdiff(screenshot_before, screenshot_after)
+                                    gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+                                    _, mask = cv2.threshold(gray, 3, 255, cv2.THRESH_BINARY)
+                                    ratio = np.count_nonzero(mask) / mask.size
+                                    print(f"Debug: 查找角色滑动, 画面变化率: {ratio:.6f}")
+
+                                
+                                    if self.screenshots_almost_same(screenshot_before, screenshot_after, change_ratio=0.01):
+                                        print(f"已滑动至底部，好友删除完成")
+                                        break
+                        
+                        # 收取体力
+                        if not _sleep(1): return
+                        tapscreen_tool.tap_screen(970, 663)   #一键获取
+                        if not _sleep(1): return
+                        tapscreen_tool.tap_screen(970, 663)  
+                        if not _sleep(1): return
+                        tapscreen_tool.tap_screen(1162, 663)   #赠送体力
+                        if not _sleep(1): return
+                        tapscreen_tool.tap_screen(1162, 663)
+                        if not _sleep(1): return
+
+                        #同意好友申请/添加推荐好友
+                        print("准备同意好友申请")
+                        if not self.click_until_appear(
+                            target_pos=(119, 290),
+                            expected_detector=recommendfriend_detector,
+                            max_retry=3,
+                            interval=2.0,
+                            stop_event=stop_event
+                        ):
+                            print("任务执行异常")
+                            Back2maintitle()
+                        else:
+                            #同意申请
+                            if not _sleep(1): return
+                            tapscreen_tool.tap_screen(976, 660)
+                            if not _sleep(1): return
+                            tapscreen_tool.tap_screen(976, 660)
+                            if not _sleep(1): return
+
+                            if not self.click_until_appear(
+                                target_detector=recommendfriend_detector,
+                                expected_detector=addfriend_detector,
+                                max_retry=3,
+                                interval=3.0,
+                                stop_event=stop_event
+                            ):
+                                print("任务执行异常")
+                                Back2maintitle()
+                            else:
+                                #添加推荐好友
+                                    print("准备添加推荐好友")
+                                    tag = 0
+                                    while True:
+                                        if stop_event and stop_event.is_set():
+                                            print("收到停止信号")
+                                            return
+                                        
+                                        if not _sleep(1): return
+                                        tapscreen_tool.tap_screen(947, 247)
+                                        tag += 1
+                                        if tag >= add_friend_count:
+                                            break
+                                        if not _sleep(1): return
+                                        screenshot1 = screenshot_tool.capture()
+                                        (xk, yk), conf2 = confirm_detector.find_icon(screenshot1)
+                                        if xk:
+                                            tapscreen_tool.tap_screen(xk, yk)
+                                            if not _sleep(1): return
+                                        tapscreen_tool.tap_screen(947, 376)
+                                        tag += 1
+                                        if tag >= add_friend_count:
+                                            break
+                                        if not _sleep(1): return
+                                        screenshot1 = screenshot_tool.capture()
+                                        (xk, yk), conf2 = confirm_detector.find_icon(screenshot1)
+                                        if xk:
+                                            tapscreen_tool.tap_screen(xk, yk)
+                                            if not _sleep(1): return
+                                        tapscreen_tool.tap_screen(947, 506)
+                                        tag += 1
+                                        if tag >= add_friend_count:
+                                            break
+                                        if not _sleep(1): return
+                                        screenshot1 = screenshot_tool.capture()
+                                        (xk, yk), conf2 = confirm_detector.find_icon(screenshot1)
+                                        if xk:
+                                            tapscreen_tool.tap_screen(xk, yk)
+                                            if not _sleep(1): return
+                                        
+                                        if not self.click_until_appear(
+                                        target_pos=(341,566),#刷新
+                                        expected_detector=addfriend_detector,
+                                        max_retry=3,
+                                        interval=3.0,
+                                        stop_event=stop_event
+                                    ):
+                                            print("任务执行异常")
+                                            Back2maintitle()
+                                    
+                                    if not _sleep(1): return
+                                    print("已添加推荐好友完成")    
+                                    if not self.click_until_appear(
+                                        target_pos=(1015,134),#退出
+                                        expected_detector=recommendfriend_detector,
+                                        max_retry=3,
+                                        interval=3.0,
+                                        stop_event=stop_event
+                                    ):
+                                        print("任务执行异常")
+                                        Back2maintitle()
+
+                        
+           
+            Back2maintitle()
+            if not _sleep(2): return
+                                    
+
+                            
+
+            
 
         # region赠送礼物
         if 'gift' in selected_tasks:
@@ -399,7 +833,8 @@ class Dailytasks(BaseTask):
                 'lalu': self.c_lalu_detector,
                 'hupo': self.c_hupo_detector,
                 'telisha': self.c_telisha_detector,
-                'xingzi': self.c_xingzi_detector
+                'xingzi': self.c_xingzi_detector,
+                'feilencui': self.c_feilencui_detector,
             }
 
             tapscreen_tool.tap_screen(1044, 123)
@@ -535,12 +970,19 @@ class Dailytasks(BaseTask):
                                 print(f"剧情处理超时: {char_key}")
                                 continue
 
-                            
+                            if not _sleep(2): return
                             tapscreen_tool.tap_screen(xg, yg)
                             if not _sleep(1): return
                             
+                            if not _sleep(1): return
                             tapscreen_tool.tap_screen(805, 292) # 选择礼物
-                            if not _sleep(0.5): return
+                            if not _sleep(1): return
+
+                            tapscreen_tool.tap_screen(891, 292) # 选择礼物
+                            if not _sleep(1): return
+
+                            tapscreen_tool.tap_screen(983, 292) # 选择礼物
+                            if not _sleep(1): return
                             
                             tapscreen_tool.tap_screen(1099, 633) # 点击赠送
                             
@@ -702,4 +1144,3 @@ class Dailytasks(BaseTask):
             if not _sleep(2): return
             print("领取奖励完成")
         print("日常任务全部完成!")
-        

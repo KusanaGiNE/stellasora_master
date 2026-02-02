@@ -11,7 +11,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 # === 配置 ===
-SERVER_URL = "http://103.239.245.46:52176/version.json"
+SERVER_URL = "http://103.205.254.65:52176/version.json"
+DOWNLOAD_HOST = "103.205.254.65:52176"
 
 
 def get_install_root() -> Path:
@@ -68,27 +69,65 @@ def get_local_version():
     return "1.0.0"
 
 
+def _open_no_proxy(req: urllib.request.Request, timeout: int):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return opener.open(req, timeout=timeout)
+
+
+def _open_default(req: urllib.request.Request, timeout: int):
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _fetch_json_with_fallback(url: str) -> dict:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "StellasoraMasterUpdater/1.0"}
+    )
+    last_error: Exception | None = None
+    for timeout in (15, 30):
+        for opener in (_open_no_proxy, _open_default):
+            try:
+                with opener(req, timeout=timeout) as resp:
+                    if getattr(resp, "status", 200) != 200:
+                        raise RuntimeError(f"HTTP 状态码: {getattr(resp, 'status', 'unknown')}")
+                    raw = resp.read()
+                    return json.loads(raw.decode("utf-8"))
+            except Exception as e:
+                last_error = e
+                continue
+    raise RuntimeError(f"获取更新信息失败: {last_error}") from last_error
+
+
 def _download(url: str, dst: Path, timeout: int = 10) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "StellasoraMasterUpdater/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if getattr(resp, "status", 200) != 200:
-                raise RuntimeError(f"下载失败，HTTP 状态码: {getattr(resp, 'status', 'unknown')}")
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            with open(dst, "wb") as f:
-                while True:
-                    chunk = resp.read(1024 * 256)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-    except urllib.error.HTTPError as e:
+    last_error: Exception | None = None
+    for t in (timeout, max(timeout * 2, 20)):
+        for opener in (_open_no_proxy, _open_default):
+            try:
+                with opener(req, timeout=t) as resp:
+                    if getattr(resp, "status", 200) != 200:
+                        raise RuntimeError(f"下载失败，HTTP 状态码: {getattr(resp, 'status', 'unknown')}")
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dst, "wb") as f:
+                        while True:
+                            chunk = resp.read(1024 * 256)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                return
+            except Exception as e:
+                last_error = e
+                continue
+
+    if isinstance(last_error, urllib.error.HTTPError):
         raise RuntimeError(
-            f"下载失败: HTTP {e.code} {e.reason}\n"
+            f"下载失败: HTTP {last_error.code} {last_error.reason}\n"
             f"URL: {url}\n"
             "提示：如果是 404，通常表示更新服务器未上传补丁文件或 version.json 的 download_url 配置错误。"
-        ) from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"下载失败: {e.reason}\nURL: {url}") from e
+        ) from last_error
+    if isinstance(last_error, urllib.error.URLError):
+        raise RuntimeError(f"下载失败: {last_error.reason}\nURL: {url}") from last_error
+    raise RuntimeError(f"下载失败: {last_error}\nURL: {url}") from last_error
 
 
 def _copy_merge(src_dir: Path, dst_dir: Path, skip_dst: set[Path] | None = None) -> None:
@@ -110,12 +149,43 @@ def _copy_merge(src_dir: Path, dst_dir: Path, skip_dst: set[Path] | None = None)
             shutil.copy2(src_file, dst_file)
 
 
-def _candidate_download_urls(download_url: str) -> list[str]:
+def _candidate_download_urls(download_url: str, version_url: str) -> list[str]:
     url = (download_url or "").strip()
     if not url:
         return []
 
-    candidates: list[str] = [url]
+    candidates: list[str] = []
+
+    # 优先：使用新地址主机，并修正 /stellasora/ 前缀
+    try:
+        parts = urlsplit(url)
+        path = parts.path or ""
+        if path.startswith("/stellasora/"):
+            path = path[len("/stellasora"):]
+        normalized = urlunsplit((parts.scheme or "http", DOWNLOAD_HOST, path, parts.query, parts.fragment))
+        candidates.append(normalized)
+    except Exception:
+        pass
+
+    # 保留原始链接作为备选
+    candidates.append(url)
+
+    # 兼容：旧 IP 超时，切换到版本地址所在的主机
+    try:
+        dl_parts = urlsplit(url)
+        ver_parts = urlsplit(version_url)
+        if dl_parts.netloc and ver_parts.netloc and dl_parts.netloc != ver_parts.netloc:
+            candidates.append(urlunsplit((dl_parts.scheme, ver_parts.netloc, dl_parts.path, dl_parts.query, dl_parts.fragment)))
+    except Exception:
+        pass
+
+    # 兼容：已知旧主机直接替换
+    try:
+        parts = urlsplit(url)
+        if parts.netloc == "103.239.245.46:52176":
+            candidates.append(urlunsplit((parts.scheme, DOWNLOAD_HOST, parts.path, parts.query, parts.fragment)))
+    except Exception:
+        pass
 
     # 兼容：服务器实际站点根目录就是 /www/wwwroot/stellasora
     # 但 version.json 误写成 /stellasora/patches/xxx.zip，导致 HTTP 404。
@@ -124,7 +194,7 @@ def _candidate_download_urls(download_url: str) -> list[str]:
         path = parts.path or ""
 
         if path.startswith("/stellasora/"):
-            new_path = path[len("/stellasora"):]
+            new_path = path[len("/stellasora") :]
             candidates.append(urlunsplit((parts.scheme, parts.netloc, new_path, parts.query, parts.fragment)))
     except Exception:
         pass
@@ -142,12 +212,8 @@ def update():
     print("正在检查更新...")
     print(f"安装目录: {BASE_DIR}")
     try:
-        # 1. 获取远程版本信息
-        with urllib.request.urlopen(SERVER_URL, timeout=5) as resp:
-            if getattr(resp, "status", 200) != 200:
-                print("无法连接到更新服务器")
-                return
-            remote_data = json.loads(resp.read().decode("utf-8"))
+        # 1. 获取远程版本信息（带重试/代理兜底）
+        remote_data = _fetch_json_with_fallback(SERVER_URL)
 
         remote_ver = remote_data["latest_version"]
         local_ver = get_local_version()
@@ -170,7 +236,7 @@ def update():
             raise RuntimeError("更新信息缺少 download_url，无法下载补丁。")
 
         last_error: Exception | None = None
-        for candidate in _candidate_download_urls(download_url):
+        for candidate in _candidate_download_urls(download_url, SERVER_URL):
             try:
                 if candidate != download_url:
                     print(f"尝试备用链接: {candidate}")

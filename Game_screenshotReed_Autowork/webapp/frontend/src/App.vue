@@ -48,6 +48,11 @@
                    <label><input type="checkbox" v-model="dailySubTasks.interaction"> 主页面角色互动</label>
                    <label><input type="checkbox" v-model="dailySubTasks.market_reward"> 领取商店随机奖励</label>
                    <label><input type="checkbox" v-model="dailySubTasks.commission"> 委托派遣</label>
+                   <label><input type="checkbox" v-model="dailySubTasks.friend_manage"> 好友管理(收藏防误删！)</label>
+                   <span class="info-icon" data-tooltip="自动删除大于一天未登录的好友&#10;对于不想删除的亲友请提前收藏">ⓘ</span>
+                   <div v-if="dailySubTasks.friend_manage" class="friend-settings" style="margin-left: 20px; margin-top: 5px; margin-bottom: 5px;">
+                      <label>添加好友数量: <input type="number" v-model.number="addFriendCount" class="small-input" style="width: 60px;"></label>
+                   </div>
                    <label><input type="checkbox" v-model="dailySubTasks.gift"> 赠送礼物</label>
                    <label><input type="checkbox" v-model="dailySubTasks.invitation"> 邀约</label>
                    <div v-if="dailySubTasks.invitation" class="invitation-settings" style="margin-left: 20px; margin-top: 5px; margin-bottom: 5px;">
@@ -152,7 +157,7 @@
           <div v-if="streamError" class="stream-error-msg">画面连接断开</div>
         </div>
         <div class="monitor-info">
-          <p>FPS 已显示在画面左上角。若使用 RAW/Scrcpy 模式，帧率可达 10-30+ FPS。</p>
+          <p>FPS</p>
         </div>
       </div>
     </section>
@@ -189,7 +194,6 @@
           <select v-model="settings.screenshot_method">
             <option value="PNG">兼容模式 (PNG) - 慢，稳定</option>
             <option value="RAW">高速模式 (RAW) - 快，推荐</option>
-            <option value="SCRCPY">极速模式 (Scrcpy) - 最快</option>
           </select>
           <button type="button" class="secondary-btn btn-small" @click="testLatency" :disabled="testingLatency">
             {{ testingLatency ? '检测中...' : '截图检测' }}
@@ -250,12 +254,13 @@ export default {
         market_reward: true,
         commission: true,
         gift: true,
+        friend_manage: false,
         invitation: true,
         card_upgrade: true,
         character_upgrade: true,
         task_reward: true
       },
-      
+      addFriendCount: 10,
       invitationCharacters: ['', '', '', '', ''],
       availableCharacters: [
         { label: '小禾', value: 'xiaohe' },
@@ -285,7 +290,8 @@ export default {
         { label: '菈露', value: 'lalu' },
         { label: '琥珀', value: 'hupo' },
         { label: '特丽莎', value: 'telisha' },
-        { label: '杏子', value: 'xingzi' }
+        { label: '杏子', value: 'xingzi' },
+        { label: '翡冷翠', value: 'feilencui' }
       ],
       towerAttribute: 'light_earth',
       towerClimbType: 'standard',
@@ -336,6 +342,10 @@ export default {
     }
   },
   mounted() {
+    // 恢复上次“邀约角色选择”（不依赖后端是否持久化）
+    this.loadInvitationFromLocal()
+    // 恢复上次“日常任务勾选/参数”（不依赖后端是否持久化）
+    this.loadDailyPrefsFromLocal()
     this.fetchConfig()
     this.startPolling()
     this.startStatusPolling()
@@ -365,9 +375,125 @@ export default {
         this.settings.adb_path = ''
         this.settings.adb_port = this.getEmulatorDefaultPort(newVal)
       }
+    },
+
+    // 邀约角色变化时自动本地保存
+    invitationCharacters: {
+      deep: true,
+      handler() {
+        this.saveInvitationToLocal()
+      }
+    },
+
+    // 日常任务勾选/参数变化时自动本地保存
+    dailySubTasks: {
+      deep: true,
+      handler() {
+        this.saveDailyPrefsToLocal()
+      }
+    },
+    addFriendCount() {
+      this.saveDailyPrefsToLocal()
+    },
+    'tasks.dailytasks': function() {
+      this.saveDailyPrefsToLocal()
     }
   },
   methods: {
+    normalizeScreenshotMethod(method) {
+      const v = String(method || '').toUpperCase()
+      // scrcpy 截图稳定性较差：前端暂时禁止选择，遇到旧配置则自动降级
+      if (v === 'SCRCPY') return 'RAW'
+      if (v === 'RAW' || v === 'PNG') return v
+      return 'PNG'
+    },
+    getInvitationStorageKey() {
+      return 'stellasora.invitation_characters.v1'
+    },
+
+    normalizeInvitationCharacters(arr) {
+      const src = Array.isArray(arr) ? arr : []
+      return Array.from({ length: 5 }, (_, i) => {
+        const v = src[i]
+        return v == null ? '' : String(v)
+      })
+    },
+
+    saveInvitationToLocal() {
+      try {
+        const key = this.getInvitationStorageKey()
+        const normalized = this.normalizeInvitationCharacters(this.invitationCharacters)
+        localStorage.setItem(key, JSON.stringify(normalized))
+      } catch (e) {
+        // localStorage 不可用时忽略
+      }
+    },
+
+    loadInvitationFromLocal() {
+      try {
+        const key = this.getInvitationStorageKey()
+        const raw = localStorage.getItem(key)
+        if (!raw) return
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return
+        this.invitationCharacters = this.normalizeInvitationCharacters(parsed)
+      } catch (e) {
+        // ignore
+      }
+    },
+
+    getDailyPrefsStorageKey() {
+      return 'stellasora.daily_task_prefs.v1'
+    },
+
+    normalizeDailySubTasks(obj) {
+      const src = (obj && typeof obj === 'object') ? obj : {}
+      const normalized = {}
+      for (const key of Object.keys(this.dailySubTasks)) {
+        normalized[key] = !!src[key]
+      }
+      return normalized
+    },
+
+    saveDailyPrefsToLocal() {
+      try {
+        const key = this.getDailyPrefsStorageKey()
+        const payload = {
+          dailytasks: !!this.tasks.dailytasks,
+          dailySubTasks: this.normalizeDailySubTasks(this.dailySubTasks),
+          addFriendCount: Number.isFinite(this.addFriendCount) ? this.addFriendCount : 10
+        }
+        localStorage.setItem(key, JSON.stringify(payload))
+      } catch (e) {
+        // localStorage 不可用时忽略
+      }
+    },
+
+    loadDailyPrefsFromLocal() {
+      try {
+        const key = this.getDailyPrefsStorageKey()
+        const raw = localStorage.getItem(key)
+        if (!raw) return
+        const parsed = JSON.parse(raw)
+        if (!parsed || typeof parsed !== 'object') return
+
+        if (typeof parsed.dailytasks === 'boolean') {
+          this.tasks.dailytasks = parsed.dailytasks
+        }
+        if (parsed.dailySubTasks && typeof parsed.dailySubTasks === 'object') {
+          this.dailySubTasks = {
+            ...this.dailySubTasks,
+            ...this.normalizeDailySubTasks(parsed.dailySubTasks)
+          }
+        }
+        if (Number.isFinite(parsed.addFriendCount)) {
+          this.addFriendCount = parsed.addFriendCount
+        }
+      } catch (e) {
+        // ignore
+      }
+    },
+
     apiUrl(path) {
       if (this.apiBase) {
         return `${this.apiBase}${path}`
@@ -398,6 +524,9 @@ export default {
       const type = this.taskTypeSelected()
       if (!type) return
       try {
+        // 兜底保存一次，避免刷新/重启后丢失
+        this.saveInvitationToLocal()
+        this.saveDailyPrefsToLocal()
         const payload = { type }
         if (type === 'tower_climbing' || type === 'daily_and_tower') {
           payload.attribute_type = this.towerAttribute
@@ -409,6 +538,9 @@ export default {
              payload.daily_sub_tasks = selected;
              if (this.dailySubTasks.invitation) {
                payload.invitation_characters = this.invitationCharacters;
+             }
+             if (this.dailySubTasks.friend_manage) {
+               payload.add_friend_count = this.addFriendCount;
              }
         }
         const res = await fetch(this.apiUrl('/task/start'), {
@@ -581,9 +713,12 @@ export default {
         this.settings.server_lang = data.config?.server_lang || 'zh-CN'
         this.settings.emulator_configs = data.config?.emulator_configs || {}
         this.settings.emulator_type = data.config?.emulator_type || 'Custom'
-        this.settings.screenshot_method = data.config?.screenshot_method || 'PNG'
-        if (data.config?.invitation_characters) {
-          this.invitationCharacters = data.config.invitation_characters
+        this.settings.screenshot_method = this.normalizeScreenshotMethod(data.config?.screenshot_method || 'PNG')
+        // 后端若返回有效邀约角色（至少有一个非空），则以服务端为准并同步写回本地。
+        const serverChars = data.config?.invitation_characters
+        if (Array.isArray(serverChars) && serverChars.some(v => v)) {
+          this.invitationCharacters = this.normalizeInvitationCharacters(serverChars)
+          this.saveInvitationToLocal()
         }
         this.configStatus = ''
       } catch (e) {
@@ -617,7 +752,7 @@ export default {
             server_lang: this.settings.server_lang || 'zh-CN',
             emulator_type: this.settings.emulator_type,
             emulator_configs: this.settings.emulator_configs,
-            screenshot_method: this.settings.screenshot_method,
+            screenshot_method: this.normalizeScreenshotMethod(this.settings.screenshot_method),
             invitation_characters: this.invitationCharacters
           })
         })
@@ -630,7 +765,7 @@ export default {
         this.settings.adb_port = data.config?.adb_port || 16384
         this.settings.emulator_type = data.config?.emulator_type || 'Custom'
         this.settings.emulator_configs = data.config?.emulator_configs || {}
-        this.settings.screenshot_method = data.config?.screenshot_method || 'PNG'
+        this.settings.screenshot_method = this.normalizeScreenshotMethod(data.config?.screenshot_method || 'PNG')
         this.configStatus = '保存成功'
         this.configStatusType = 'success'
       } catch (e) {
