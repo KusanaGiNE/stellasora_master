@@ -291,7 +291,8 @@ export default {
         { label: '琥珀', value: 'hupo' },
         { label: '特丽莎', value: 'telisha' },
         { label: '杏子', value: 'xingzi' },
-        { label: '翡冷翠', value: 'feilencui' }
+        { label: '翡冷翠', value: 'feilencui' },
+        { label: '科洛妮丝·新年', value: 'keluonisi_newyear' },
       ],
       towerAttribute: 'light_earth',
       towerClimbType: 'standard',

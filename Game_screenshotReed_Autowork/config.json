@@ -2,7 +2,7 @@
   "adb_path": "E:\\Program Files\\Netease\\MuMu Player 12\\shell\\adb.exe",
   "default_instance": 1,
   "adb_port": 16384,
-  "server_lang": "zh-Hant",
+  "server_lang": "zh-CN",
   "emulator_type": "MuMu12",
   "emulator_configs": {
     "Custom": {
@@ -18,12 +18,12 @@
       "port": 16384
     }
   },
-  "screenshot_method": "SCRCPY",
+  "screenshot_method": "PNG",
   "invitation_characters": [
-    "",
-    "",
-    "",
-    "",
-    ""
+    "gerui",
+    "xiahua",
+    "lalu_shengye",
+    "wuyu",
+    "feilencui"
   ]
 }

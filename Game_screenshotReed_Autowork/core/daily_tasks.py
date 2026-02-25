@@ -226,6 +226,8 @@ class Dailytasks(BaseTask):
     def c_xingzi_detector(self): return self.load_detector("charactercard/xingzi.png")
     @property
     def c_feilencui_detector(self): return self.load_detector("charactercard/feilencui.png")
+    @property
+    def c_keluonisi_newyear_detector(self): return self.load_detector("charactercard/keluonisi_newyear.png")
     
 
     def _find_in_region(self, detector, screenshot, region, *, threshold: float = 0.82):
@@ -362,6 +364,7 @@ class Dailytasks(BaseTask):
         c_telisha_detector = self.c_telisha_detector
         c_xingzi_detector = self.c_xingzi_detector
         c_feilencui_detector = self.c_feilencui_detector
+        c_keluonisi_newyear_detector = self.c_keluonisi_newyear_detector
         
 
 
@@ -408,7 +411,7 @@ class Dailytasks(BaseTask):
             print("主页面角色互动完成")
             if not _sleep(2): return
 
-    
+        # region领取随机奖励
         if 'market_reward' in selected_tasks:
             print("开始执行领取商店随机奖励")
           
@@ -433,6 +436,30 @@ class Dailytasks(BaseTask):
                 # 返回主页面
                 if not Back2maintitle(): return
                 if not _sleep(2): return
+
+                # 返回主页面后检测 market 图标并点击进入
+                for _ in range(3):
+                    if stop_event and stop_event.is_set():
+                        return
+                    screenshot1 = screenshot_tool.capture()
+                    (xm, ym), _ = maintitle_detector.find_icon(screenshot1)
+                    if xm is not None:
+                        tapscreen_tool.tap_screen(xm, ym)
+                        if not _sleep(1): return
+                        break
+                    if not _sleep(0.8): return
+                
+                tapscreen_tool.tap_screen(73, 636)
+                if not _sleep(1): return
+                tapscreen_tool.tap_screen(73, 636)
+                if not _sleep(1): return
+                print("领取商城随机奖励完成")
+
+                # 返回主页面
+                if not Back2maintitle(): return
+                if not _sleep(2): return
+                
+
 
         # region委托派遣
         if 'commission' in selected_tasks:
@@ -835,6 +862,7 @@ class Dailytasks(BaseTask):
                 'telisha': self.c_telisha_detector,
                 'xingzi': self.c_xingzi_detector,
                 'feilencui': self.c_feilencui_detector,
+                'keluonisi_newyear': self.c_keluonisi_newyear_detector,
             }
 
             tapscreen_tool.tap_screen(1044, 123)
@@ -930,9 +958,10 @@ class Dailytasks(BaseTask):
                             if not self.click_until_appear(target_pos=(895, 647), expected_detector=confirm_detector, max_retry=2, stop_event=stop_event):
                                 print(f"进入邀约失败: {char_key}")
                                 continue
-
+                            if not _sleep(1): return
                             
-                            if not self.click_until_appear(target_detector=confirm_detector, expected_detector=select_detector, stop_event=stop_event):
+                            
+                            if not self.click_until_appear(target_detector=confirm_detector, expected_detector=select_detector, stop_event=stop_event, wait_after_click=1.0):
                                 print(f"确认邀约失败: {char_key}")
                                 continue
                             else:
@@ -992,7 +1021,12 @@ class Dailytasks(BaseTask):
                             # 点击返回直到回到邀约列表
                             if not self.click_until_appear(target_pos=(659, 615), expected_detector=invitation_detector, max_retry=15, stop_event=stop_event):
                                 print(f"返回邀约列表失败: {char_key}")
-                            
+                            tapscreen_tool.tap_screen(1099, 633)
+                            if not _sleep(1): return
+                            tapscreen_tool.tap_screen(1099, 633)
+                            if not _sleep(1): return
+                            tapscreen_tool.tap_screen(1099, 633)
+                            if not _sleep(1): return
                             print(f"邀约角色 {char_key} 完成")
                             if not _sleep(1): return
                         else:

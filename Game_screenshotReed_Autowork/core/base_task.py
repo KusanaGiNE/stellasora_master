@@ -57,7 +57,7 @@ class BaseTask:
             self._detectors[subpath] = IconDetector(full_path)
         return self._detectors[subpath]
 
-    def click_until_appear(self, target_detector=None, expected_detector=None, max_retry=10, interval=1.0, stop_event=None, region=None, target_pos=None):
+    def click_until_appear(self, target_detector=None, expected_detector=None, max_retry=10, interval=1.0, stop_event=None, region=None, target_pos=None, wait_after_click=0.0):
         """
         MAA式核心逻辑：点击目标(target)，直到预期画面(expected)出现。
         
@@ -68,6 +68,7 @@ class BaseTask:
         :param stop_event: 停止信号
         :param region: 目标检测的区域 (x, y, w, h)，用于加速识别
         :param target_pos: 直接点击的坐标 (x, y)，如果提供了此参数，则忽略 target_detector
+        :param wait_after_click: 点击后额外等待的时间(秒)，用于等待页面稳定
         :return: True if success, False if timeout
         """
         if expected_detector is None:
@@ -87,15 +88,22 @@ class BaseTask:
                 return True
             
             # 2. 如果还没成功，尝试点击目标
+            clicked = False
             if target_pos:
                 print(f"点击固定坐标 {target_pos}，第 {i+1}/{max_retry} 次尝试")
                 self.tapscreen_tool.tap_screen(*target_pos)
+                clicked = True
             elif target_detector:
                 # 使用 region 加速识别
                 (tx, ty), _ = target_detector.find_icon(screenshot, region=region)
                 if tx is not None:
                     print(f"点击目标 ({tx}, {ty})，第 {i+1}/{max_retry} 次尝试")
                     self.tapscreen_tool.tap_screen(tx, ty)
+                    clicked = True
+
+            if clicked and wait_after_click > 0:
+                if not self.interruptible_sleep(wait_after_click, stop_event):
+                    return False
             
             time.sleep(interval)
         
