@@ -43,6 +43,8 @@ class TowerClimber(BaseTask):
         self.buy_detector = self.load_detector("tower_climber/buy.png") #购买按钮检测器
         self.buypagecheak_detector = self.load_detector("tower_climber/buypagecheak.png") #购买页面检测器
         self.islocked_detector = self.load_detector("tower_climber/islocked.png") #检测是否锁定
+        self.confirm_detector = self.load_detector("charactercard/icon/confirm.png") #检测确认按钮
+        self.save_detector = self.load_detector("tower_climber/savepagecheak.png") #检测保存按钮
 
     # Removed local click_until_appear to use BaseTask's implementation
     
@@ -106,14 +108,165 @@ class TowerClimber(BaseTask):
                 
         return filtered_points
 
-    def run(self, attribute_type=None, max_runs=0, stop_on_weekly=True, stop_event=None, sleep_fn=None, climb_type= None):
-        self.screenshot_tool.start_stream()
-        try:
-            self._run_internal(attribute_type, max_runs, stop_on_weekly, stop_event, sleep_fn, climb_type)
-        finally:
-            self.screenshot_tool.stop_stream()
+    def _handle_common_event_page(self, screenshot, sleep_fn, stop_event=None):
+        tapscreen_tool = self.tapscreen_tool
 
-    def _run_internal(self, attribute_type, max_runs, stop_on_weekly, stop_event, sleep_fn, climb_type):
+        (x_reco, y_reco), _ = self.recommend_detector.find_icon(screenshot)
+        if x_reco is not None:
+            print("检测到推荐卡牌页面，进行选择")
+            tapscreen_tool.tap_screen(x_reco, y_reco)
+            if not sleep_fn(2):
+                return 'abort'
+            tapscreen_tool.tap_screen(x_reco + 129, y_reco + 193)
+            if not sleep_fn(3):
+                return 'abort'
+            return 'handled'
+
+        (x_music, y_music), _ = self.musicnoteget_detector.find_icon(screenshot)
+        if x_music is not None:
+            print("检测到音符获取页面，执行点击")
+            tapscreen_tool.tap_screen(157, 341)
+            if not sleep_fn(2):
+                return 'abort'
+            tapscreen_tool.tap_screen(157, 341)
+            if not sleep_fn(3):
+                return 'abort'
+            return 'handled'
+
+        (x_skill, y_skill), _ = self.skillactivate_detector.find_icon(screenshot)
+        if x_skill is not None:
+            print("检测到协奏技能激活，执行点击")
+            tapscreen_tool.tap_screen(157, 341)
+            if not sleep_fn(1):
+                return 'abort'
+            tapscreen_tool.tap_screen(157, 341)
+            if not sleep_fn(1):
+                return 'abort'
+            tapscreen_tool.tap_screen(157, 341)
+            if not sleep_fn(2):
+                return 'abort'
+            return 'handled'
+
+        return 'noop'
+
+    def _buy_discount_goods(self, sleep_fn, stop_event=None, no_response_limit=3):
+        tapscreen_tool = self.tapscreen_tool
+
+        print("正在扫描优惠商品...")
+        screenshot = self.screenshot_tool.capture()
+        discount_points = self.find_multi_icons(screenshot, self.discount_detector)
+
+        if not discount_points:
+            print("未发现优惠商品")
+            return True
+
+        print(f"发现 {len(discount_points)} 个优惠商品，开始购买")
+        for idx, (dx, dy) in enumerate(discount_points):
+            if stop_event and stop_event.is_set():
+                return False
+
+            print(f"购买第 {idx + 1} 个优惠商品: ({dx}, {dy})")
+            tapscreen_tool.tap_screen(dx, dy)
+            if not sleep_fn(2):
+                return False
+
+            screenshot = self.screenshot_tool.capture()
+            (x_buy, y_buy), _ = self.buy_detector.find_icon(screenshot)
+            if x_buy is None:
+                break
+
+            tapscreen_tool.tap_screen(x_buy, y_buy)
+            if not sleep_fn(2):
+                return False
+
+            no_response_count = 0
+            while True:
+                if stop_event and stop_event.is_set():
+                    print("收到停止信号，退出爬塔")
+                    return False
+
+                screenshot = self.screenshot_tool.capture()
+                (x_buycheak, y_buycheak), _ = self.buypagecheak_detector.find_icon(screenshot)
+                if x_buycheak is not None:
+                    break
+
+                action_state = self._handle_common_event_page(screenshot, sleep_fn, stop_event)
+                if action_state == 'abort':
+                    return False
+                if action_state == 'handled':
+                    no_response_count = 0
+                    continue
+
+                no_response_count += 1
+                if no_response_count >= no_response_limit and not sleep_fn(1):
+                    return False
+
+        print("优惠商品购买完成")
+        return True
+
+    def _process_standard_shop_phase(
+        self,
+        enter_shop_pos,
+        enhance_pos,
+        sleep_fn,
+        stop_event=None,
+        continue_pos=None,
+        no_response_limit=3,
+    ):
+        tapscreen_tool = self.tapscreen_tool
+
+        tapscreen_tool.tap_screen(*enter_shop_pos)
+        if not sleep_fn(2):
+            return False
+
+        if not self._buy_discount_goods(
+            sleep_fn=sleep_fn,
+            stop_event=stop_event,
+            no_response_limit=no_response_limit,
+        ):
+            return False
+
+        tapscreen_tool.tap_screen(68, 37)
+        if not sleep_fn(2):
+            return False
+
+        while True:
+            if stop_event and stop_event.is_set():
+                print("收到停止信号，退出爬塔")
+                return False
+
+            tapscreen_tool.tap_screen(*enhance_pos)
+            if not sleep_fn(2):
+                return False
+
+            screenshot = self.screenshot_tool.capture()
+            action_state = self._handle_common_event_page(screenshot, sleep_fn, stop_event)
+            if action_state == 'abort':
+                return False
+            if action_state == 'handled':
+                continue
+
+            if continue_pos is not None:
+                tapscreen_tool.tap_screen(*continue_pos)
+                if not sleep_fn(3):
+                    return False
+            break
+
+        if continue_pos is not None:
+            tapscreen_tool.tap_screen(*continue_pos)
+            if not sleep_fn(3):
+                return False
+
+        return True
+
+    def run(self, attribute_type=None, max_runs=0, stop_on_weekly=True, stop_event=None, sleep_fn=None, climb_type= None, keep_record: bool = False):
+        self.screenshot_tool.acquire_stream('tower_climber', detect_display=False)
+        try:
+            self._run_internal(attribute_type, max_runs, stop_on_weekly, stop_event, sleep_fn, climb_type, keep_record)
+        finally:
+            self.screenshot_tool.release_stream('tower_climber')
+
+    def _run_internal(self, attribute_type, max_runs, stop_on_weekly, stop_event, sleep_fn, climb_type, keep_record):
         """
         支持 stop_event; sleep_fn(seconds, stop_event).
         :param attribute_type: 'light_earth' | 'water_wind' | 'fire_dark'
@@ -151,6 +304,8 @@ class TowerClimber(BaseTask):
         buypagecheak_detector = self.buypagecheak_detector
         islocked_detector = self.islocked_detector
         cancel_detector = self.cancel_detector
+        confirm_detector = self.confirm_detector
+        save_detector = self.save_detector
         
 
         def _sleep(sec):
@@ -318,285 +473,92 @@ class TowerClimber(BaseTask):
                 (x_quit, y_quit), conf_quit = quittower_detector.find_icon(screenshot)
                 if x_quit is not None:
                     if climb_type == 'standard':  #标准爬塔模式:购买，强化
-                        tapscreen_tool.tap_screen(657, 280) #点击进入商店
-                        if not _sleep(2): return
-
-                        print("正在扫描优惠商品...")
-                        screenshot = screenshot_tool.capture()
-                        discount_points = self.find_multi_icons(screenshot, self.discount_detector)
-                        
-                        if discount_points:
-                            print(f"发现 {len(discount_points)} 个优惠商品，开始购买")
-                            for idx, (dx, dy) in enumerate(discount_points):
-                                if stop_event and stop_event.is_set(): return
-                                print(f"购买第 {idx + 1} 个优惠商品: ({dx}, {dy})")
-                                tapscreen_tool.tap_screen(dx, dy) 
-                                if not _sleep(2): return # 点击间隔
-                                screenshot = screenshot_tool.capture()
-                                (x_buy, y_buy), conf_buy = self.buy_detector.find_icon(screenshot)
-                                if x_buy is not None:
-                                    tapscreen_tool.tap_screen(x_buy, y_buy)  # 点击购买按钮
-                                    if not _sleep(2): return
-                                    
-                                    
-                                    no_response_count = 0
-                                    
-                                    while True:
-                                        if stop_event and stop_event.is_set():
-                                            print("收到停止信号，退出爬塔")
-                                            return
-                                        
-                                        screenshot = screenshot_tool.capture()
-                                        (x_buycheak, y_buycheak), conf_buycheak = buypagecheak_detector.find_icon(screenshot)
-                                        if x_buycheak is not None:
-                                            break # 购买成功，退出循环
-
-                                        (x_reco, y_reco), conf_reco = recommend_detector.find_icon(screenshot)
-                                        if x_reco is not None:
-                                            print("检测到推荐卡牌页面，进行选择")
-                                            tapscreen_tool.tap_screen(x_reco, y_reco)  # 点击推荐卡
-                                            if not _sleep(2): return
-                                            tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
-                                            if not _sleep(3): return
-                                            no_response_count = 0 # 重置计数器
-                                            continue    
-                                        (x_music, y_music), conf_music = musicnoteget_detector.find_icon(screenshot)
-                                        if x_music is not None:
-                                            print("检测到音符获取页面，执行点击")
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(2): return
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(3): return
-                                            no_response_count = 0 
-                                            continue
-                                        (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
-                                        if x_skill is not None:
-                                            print("检测到协奏技能激活，执行点击")
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(1): return
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(1): return
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(2): return
-                                            no_response_count = 0 
-                                            continue
-                                        
-                                        
-                                        no_response_count += 1
-                                        if no_response_count >= 3:
-                                           
-                                            if not _sleep(1): return
-                                        
-
-                                else:
-                                    break
-
-                            print("优惠商品购买完成")
-                            tapscreen_tool.tap_screen(68, 37)
-                            if not _sleep(2): return
-                        
-                                
-                        else:
-                            print("未发现优惠商品")
-                            tapscreen_tool.tap_screen(68, 37)
-                            if not _sleep(2): return
-                        
-
-                        #点击强化
-                        
-                        #循环到金钱不够
-                        
-                        while True:
-                            if stop_event and stop_event.is_set():
-                                print("收到停止信号，退出爬塔")
-                                return
-                            tapscreen_tool.tap_screen(657, 393)
-                            if not _sleep(2): return
-                            screenshot = screenshot_tool.capture()
-                            (x_reco, y_reco), conf_reco = recommend_detector.find_icon(screenshot)
-                            if x_reco is not None:
-                                print("检测到推荐卡牌页面，进行选择")
-                                tapscreen_tool.tap_screen(x_reco, y_reco)  # 点击推荐卡
-                                if not _sleep(2): return
-                                tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
-                                if not _sleep(3): return
-                            else:
-                                break
+                        if not self._process_standard_shop_phase(
+                            enter_shop_pos=(657, 280),
+                            enhance_pos=(657, 393),
+                            sleep_fn=_sleep,
+                            stop_event=stop_event,
+                            no_response_limit=3,
+                        ):
+                            return
 
                     tapscreen_tool.tap_screen(x_quit, y_quit)  # 点击退出爬塔
                     if not _sleep(2): return
                     tapscreen_tool.tap_screen(778, 506)  # 确认退出
                     if not _sleep(2): return
-                    tapscreen_tool.tap_screen(656, 672) 
+                    tapscreen_tool.tap_screen(656, 672)
                     if not _sleep(2): return
-                    tapscreen_tool.tap_screen(656, 672) 
+                    tapscreen_tool.tap_screen(656, 672)
                     if not _sleep(2): return
                     screenshot = screenshot_tool.capture()
                     (x_save, y_save), conf_save = savepagecheak_detector.find_icon(screenshot)
                     while x_save is None:
-                        tapscreen_tool.tap_screen(656, 672) 
+                        if stop_event and stop_event.is_set():
+                            print("收到停止信号，退出爬塔")
+                            return
+                        tapscreen_tool.tap_screen(656, 672)
                         if not _sleep(2): return
                         screenshot = screenshot_tool.capture()
                         (x_save, y_save), conf_save = savepagecheak_detector.find_icon(screenshot)
-                    
-                    (x_locked, y_locked), conf_locked = islocked_detector.find_icon(screenshot)
-                    if x_locked is not None:
-                        tapscreen_tool.tap_screen(x_locked, y_locked)
+
+                    if keep_record:
+                        print("已到达记录页面，保留爬塔记录，跳过删除流程")
+                        if not _sleep(1): return
+                        screenshot = screenshot_tool.capture()
+                        (x_save1, y_save1), conf_save1 = save_detector.find_icon(screenshot)
+                        tapscreen_tool.tap_screen(x_save1, y_save1) #保存记录
                         if not _sleep(2): return
+                        screenshot = screenshot_tool.capture()
+                        (x_confirm, y_confirm), conf_confirm = confirm_detector.find_icon(screenshot)
+                        if x_confirm is None:
+                            tapscreen_tool.tap_screen(x_save1, y_save1) #再次点击保存以触发确认
+                            if not _sleep(2): return
+                            screenshot = screenshot_tool.capture()
+                            (x_confirm, y_confirm), conf_confirm = confirm_detector.find_icon(screenshot)
+                        if x_confirm is not None:
+                            tapscreen_tool.tap_screen(x_confirm, y_confirm) #点击确认
+                            if not _sleep(2): return
+                            tapscreen_tool.tap_screen(x_confirm, y_confirm)
+                            if not _sleep(2): return
+                        else:
+                            print("未检测到保存确认按钮，跳过保存确认点击")
                     
-                    
-                    tapscreen_tool.tap_screen(x_save, y_save)  # 删除记录
-                    if not _sleep(2): return
-                    tapscreen_tool.tap_screen(776, 534)  # 确认删除
-                    if not _sleep(2): return
-                    tapscreen_tool.tap_screen(776, 534)  
-                    if not _sleep(2): return
-                    tapscreen_tool.tap_screen(776, 534)  
-                    if not _sleep(2): return
+                    else:
+                        (x_locked, y_locked), conf_locked = islocked_detector.find_icon(screenshot)
+                        if x_locked is not None:
+                            tapscreen_tool.tap_screen(x_locked, y_locked)
+                            if not _sleep(2): return
+
+                        tapscreen_tool.tap_screen(x_save, y_save)  # 删除记录
+                        if not _sleep(2): return
+                        tapscreen_tool.tap_screen(776, 534)  # 确认删除
+                        if not _sleep(2): return
+                        tapscreen_tool.tap_screen(776, 534)
+                        if not _sleep(2): return
+                        tapscreen_tool.tap_screen(776, 534)
+                        if not _sleep(2): return
                     break # 退出塔后跳出循环，完成一次爬塔
                     
     
-                (x_reco, y_reco), conf_reco = recommend_detector.find_icon(screenshot)
-                if x_reco is not None:
-                    print("检测到推荐卡牌页面，进行选择")
-                    tapscreen_tool.tap_screen(x_reco, y_reco)  # 点击推荐卡
-                    if not _sleep(2): return
-                    tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
-                    if not _sleep(3): return
-                    continue    
-                (x_music, y_music), conf_music = musicnoteget_detector.find_icon(screenshot)
-                if x_music is not None:
-                    print("检测到音符获取页面，执行点击")
-                    tapscreen_tool.tap_screen(157, 341) 
-                    if not _sleep(2): return
-                    tapscreen_tool.tap_screen(157, 341) 
-                    if not _sleep(3): return
-                    
-                    continue
-                    
-                (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
-                if x_skill is not None:
-                    print("检测到协奏技能激活，执行点击")
-                    tapscreen_tool.tap_screen(157, 341) 
-                    if not _sleep(1): return
-                    tapscreen_tool.tap_screen(157, 341) 
-                    if not _sleep(1): return
-                    tapscreen_tool.tap_screen(157, 341) 
-                    if not _sleep(2): return
+                action_state = self._handle_common_event_page(screenshot, _sleep, stop_event)
+                if action_state == 'abort':
+                    return
+                if action_state == 'handled':
                     continue
                 
                 (x_skipshop, y_skipshop), conf_skipshop = self.skipshopping_detector.find_icon(screenshot)
                 if x_skipshop is not None:
                     if climb_type == 'standard':  #标准爬塔模式:购买，强化
                         print("检测到商店强化页面页面，执行购买音符以及升级")
-                        tapscreen_tool.tap_screen(653, 286) #点击进入商店
-                        if not _sleep(2): return
-
-                        print("正在扫描优惠商品...")
-                        screenshot = screenshot_tool.capture()
-                        discount_points = self.find_multi_icons(screenshot, self.discount_detector)
-                        
-                        if discount_points:
-                            print(f"发现 {len(discount_points)} 个优惠商品，开始购买")
-                            for idx, (dx, dy) in enumerate(discount_points):
-                                if stop_event and stop_event.is_set(): return
-                                print(f"购买第 {idx + 1} 个优惠商品: ({dx}, {dy})")
-                                tapscreen_tool.tap_screen(dx, dy) 
-                                if not _sleep(2): return # 点击间隔
-                                screenshot = screenshot_tool.capture()
-                                (x_buy, y_buy), conf_buy = self.buy_detector.find_icon(screenshot)
-                                if x_buy is not None:
-                                    tapscreen_tool.tap_screen(x_buy, y_buy)  # 点击购买按钮
-                                    if not _sleep(2): return
-                                    
-                                   
-                                    no_response_count = 0
-                                    
-                                    while True:
-                                        if stop_event and stop_event.is_set():
-                                            print("收到停止信号，退出爬塔")
-                                            return
-                                        
-                                        screenshot = screenshot_tool.capture()
-                                        (x_buycheak, y_buycheak), conf_buycheak = buypagecheak_detector.find_icon(screenshot)
-                                        if x_buycheak is not None:
-                                            break
-
-                                        (x_reco, y_reco), conf_reco = recommend_detector.find_icon(screenshot)
-                                        if x_reco is not None:
-                                            print("检测到推荐卡牌页面，进行选择")
-                                            tapscreen_tool.tap_screen(x_reco, y_reco)  # 点击推荐卡
-                                            if not _sleep(2): return
-                                            tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
-                                            if not _sleep(3): return
-                                            no_response_count = 0 # 重置计数器
-                                            continue    
-                                        (x_music, y_music), conf_music = musicnoteget_detector.find_icon(screenshot)
-                                        if x_music is not None:
-                                            print("检测到音符获取页面，执行点击")
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(2): return
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(3): return
-                                            no_response_count = 0 
-                                            continue
-                                        (x_skill, y_skill), conf_skill = skillactivate_detector.find_icon(screenshot)
-                                        if x_skill is not None:
-                                            print("检测到协奏技能激活，执行点击")
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(1): return
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(1): return
-                                            tapscreen_tool.tap_screen(157, 341) 
-                                            if not _sleep(2): return
-                                            no_response_count = 0 
-                                            continue
-                                        
-                                        
-                                        no_response_count += 1
-                                        if no_response_count >= 2:
-                                            
-                                            
-                                            if not _sleep(1): return
-                                       
-                                else:#金钱不足，跳出购买循环
-                                    break
-
-                            print("优惠商品购买完成")
-                            tapscreen_tool.tap_screen(68, 37)
-                            if not _sleep(2): return
-                        
-                                                
-                        else:
-                            print("未发现优惠商品")
-                            tapscreen_tool.tap_screen(68, 37)
-                            if not _sleep(2): return
-                        
-
-                        #点击强化
-                        
-                        #循环到金钱不够
-                        
-                        while True:
-                            if stop_event and stop_event.is_set():
-                                print("收到停止信号，退出爬塔")
-                                return
-                            tapscreen_tool.tap_screen(597, 392)
-                            if not _sleep(2): return
-                            screenshot = screenshot_tool.capture()
-                            (x_reco, y_reco), conf_reco = recommend_detector.find_icon(screenshot)
-                            if x_reco is not None:
-                                print("检测到推荐卡牌页面，进行选择")
-                                tapscreen_tool.tap_screen(x_reco, y_reco)  # 点击推荐卡
-                                if not _sleep(2): return
-                                tapscreen_tool.tap_screen(x_reco+129, y_reco+193)  # 确认选择
-                                if not _sleep(3): return
-                            else:
-                                tapscreen_tool.tap_screen(x_skipshop, y_skipshop) 
-                                if not _sleep(3): return
-                                break
-                        tapscreen_tool.tap_screen(x_skipshop, y_skipshop) 
-                        if not _sleep(3): return 
+                        if not self._process_standard_shop_phase(
+                            enter_shop_pos=(653, 286),
+                            enhance_pos=(597, 392),
+                            continue_pos=(x_skipshop, y_skipshop),
+                            sleep_fn=_sleep,
+                            stop_event=stop_event,
+                            no_response_limit=2,
+                        ):
+                            return
                     elif climb_type == 'quick': #快速爬塔模式:跳过购买，直接继续爬塔
                         print("检测到商店强化页面，跳过购买直接继续爬塔")
                         tapscreen_tool.tap_screen(x_skipshop, y_skipshop) 

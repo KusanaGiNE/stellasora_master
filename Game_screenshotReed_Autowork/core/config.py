@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from threading import Lock
@@ -47,10 +48,28 @@ def get_config() -> Dict[str, Any]:
     return dict(_CONFIG_CACHE)
 
 
-def resolve_path(value: str | None) -> Path | None:
-    if not value:
+def normalize_path_input(value: str | Path | None) -> str | None:
+    if value is None:
         return None
-    path = Path(value)
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
+        raw = raw[1:-1].strip()
+
+    raw = os.path.expandvars(raw)
+    raw = os.path.expanduser(raw)
+    return raw or None
+
+
+def resolve_path(value: str | Path | None) -> Path | None:
+    normalized = normalize_path_input(value)
+    if not normalized:
+        return None
+
+    path = Path(normalized)
     if not path.is_absolute():
         path = (CONFIG_PATH.parent / path).resolve()
     return path
@@ -98,6 +117,22 @@ def get_adb_port() -> int:
 def update_config(values: Dict[str, Any]) -> Dict[str, Any]:
     allowed_keys = set(DEFAULT_CONFIG.keys())
     filtered = {k: v for k, v in values.items() if k in allowed_keys}
+
+    if "adb_path" in filtered:
+        filtered["adb_path"] = normalize_path_input(filtered.get("adb_path")) or ""
+
+    emulator_configs = filtered.get("emulator_configs")
+    if isinstance(emulator_configs, dict):
+        normalized_emulator_configs: Dict[str, Any] = {}
+        for name, item in emulator_configs.items():
+            if not isinstance(item, dict):
+                normalized_emulator_configs[name] = item
+                continue
+
+            normalized_item = dict(item)
+            normalized_item["path"] = normalize_path_input(item.get("path")) or ""
+            normalized_emulator_configs[name] = normalized_item
+        filtered["emulator_configs"] = normalized_emulator_configs
 
     with _CONFIG_LOCK:
         current = _load_config()

@@ -105,7 +105,8 @@ class BaseTask:
                 if not self.interruptible_sleep(wait_after_click, stop_event):
                     return False
             
-            time.sleep(interval)
+            if not self.interruptible_sleep(interval, stop_event):
+                return False
         
         print("操作超时，未检测到预期画面")
         return False
@@ -125,7 +126,8 @@ class BaseTask:
                 print("目标画面已出现")
                 return True
             
-            time.sleep(interval)
+            if not self.interruptible_sleep(interval, stop_event):
+                return False
         
         print("等待超时")
         return False

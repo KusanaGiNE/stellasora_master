@@ -81,6 +81,7 @@ class MumuScreenshot:
         self._adb_capture_lock = threading.Lock()
         # 需要可重入：ensure_stream 可能调用 start_stream/stop_stream
         self._stream_ctl_lock = threading.RLock()
+        self._stream_consumers: set[str] = set()
 
         # 强制重启节流：避免频繁 stop/start 抖动
         self._last_force_restart_ts = 0.0
@@ -95,6 +96,10 @@ class MumuScreenshot:
 
         # 任务启动时可预先探测一次 display_id（避免预览阶段触发 dumpsys）
         self._preferred_display_id = None
+        self._raw_fail_streak = 0
+        self._raw_fallback_until = 0.0
+        self._raw_fallback_notice_ts = 0.0
+        self._last_capture_backend = None
 
         # 初始化连接（可选）：Web 启动阶段允许跳过，避免启动时强制校验/连接 adb。
         if auto_connect:
@@ -186,7 +191,7 @@ class MumuScreenshot:
         if do_soft_recover and method_snapshot in ('RAW', 'PNG'):
             img = None
             try:
-                img = self._capture_raw() if method_snapshot == 'RAW' else self._capture_once()
+                img = self._capture_once()
             except Exception:
                 img = None
 
@@ -233,6 +238,8 @@ class MumuScreenshot:
                 self.stop_stream()
 
             self.screenshot_method = method
+            self._raw_fail_streak = 0
+            self._raw_fallback_until = 0.0
             print(f"截图方式已切换为: {method}")
 
             # 切换方式后清理旧缓存/时间戳，避免被 ensure_stream 立即判 stale 进入重启风暴
@@ -242,6 +249,59 @@ class MumuScreenshot:
 
             if restart:
                 self.start_stream()
+
+    def acquire_stream(self, owner: str, detect_display: bool = True) -> None:
+        """为一个长期消费者保活截图流。"""
+        owner_key = str(owner or "anonymous")
+        with self._stream_ctl_lock:
+            self._stream_consumers.add(owner_key)
+
+        if self.running:
+            self.ensure_stream(detect_display=detect_display)
+        else:
+            self.start_stream(detect_display=detect_display)
+
+    def release_stream(self, owner: str) -> None:
+        """释放一个长期消费者；仅当无人使用时才真正停流。"""
+        owner_key = str(owner or "anonymous")
+        should_stop = False
+        with self._stream_ctl_lock:
+            self._stream_consumers.discard(owner_key)
+            should_stop = not self._stream_consumers
+
+        if should_stop:
+            self.stop_stream()
+
+    def stream_consumers(self) -> tuple[str, ...]:
+        with self._stream_ctl_lock:
+            return tuple(sorted(self._stream_consumers))
+
+    def effective_capture_method(self) -> str:
+        if self.screenshot_method == 'RAW' and time.time() < float(self._raw_fallback_until or 0.0):
+            return 'PNG'
+        return self.screenshot_method
+
+    def last_capture_backend(self) -> str | None:
+        return self._last_capture_backend
+
+    def _mark_capture_backend(self, backend: str) -> None:
+        self._last_capture_backend = backend
+
+    def _mark_raw_success(self) -> None:
+        self._raw_fail_streak = 0
+        self._raw_fallback_until = 0.0
+        self._mark_capture_backend('RAW')
+
+    def _mark_raw_failure(self) -> None:
+        now = time.time()
+        self._raw_fail_streak += 1
+        if self._raw_fail_streak >= 3:
+            cooldown = min(15.0, 2.0 * float(self._raw_fail_streak))
+            self._raw_fallback_until = max(float(self._raw_fallback_until or 0.0), now + cooldown)
+            if now - float(self._raw_fallback_notice_ts or 0.0) >= 2.0:
+                remaining = max(0.0, self._raw_fallback_until - now)
+                print(f"RAW 连续失败，临时切换 PNG {remaining:.1f}s")
+                self._raw_fallback_notice_ts = now
 
     def _is_garbled_green_frame(self, img: np.ndarray) -> bool:
         """识别 scrcpy 花屏/绿屏帧（稳定优先：尽量避免误判导致无限重启）。
@@ -481,6 +541,7 @@ class MumuScreenshot:
             print(f"Scrcpy 启动准备失败: {e}")
             print("回退到 RAW 模式")
             self.screenshot_method = 'RAW'
+            self._adb_stream_started_ts = time.time()
             self.thread = threading.Thread(target=self._stream_loop, daemon=True)
             self.thread.start()
 
@@ -676,31 +737,27 @@ class MumuScreenshot:
             
             # RGBA 转 BGR (OpenCV 默认格式)
             img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-            
-            return self._process_image(img)
+            img = self._process_image(img)
+            if img is not None:
+                self._mark_raw_success()
+            return img
             
         except subprocess.TimeoutExpired:
             print("RAW截图超时：adb exec-out screencap")
             self._mark_adb_timeout()
+            self._mark_raw_failure()
             return None
         except Exception as e:
             print(f"RAW截图失败: {e}")
+            self._mark_raw_failure()
             return None
 
-    def _capture_once(self):
-        """执行一次截图"""
-        if self.screenshot_method == 'RAW':
-            img = self._capture_raw()
-            if img is not None:
-                return img
-            # 如果 RAW 失败，自动回退到 PNG
-            print("RAW 模式失败，回退到 PNG 模式")
-        
+    def _capture_png(self):
+        """使用 PNG 模式截图 (adb exec-out screencap -p)"""
         adb_path = self._get_adb_path()
         port = get_adb_port()
         
         try:
-            # 移除 connect 命令，假设已连接
             with self._adb_capture_lock:
                 result = subprocess.run(
                     f'"{adb_path}" -s 127.0.0.1:{port} exec-out screencap -p',
@@ -712,7 +769,10 @@ class MumuScreenshot:
             
             img_array = np.frombuffer(result.stdout, dtype=np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            return self._process_image(img)
+            img = self._process_image(img)
+            if img is not None:
+                self._mark_capture_backend('PNG')
+            return img
             
         except subprocess.TimeoutExpired:
             print("PNG截图超时：adb exec-out screencap -p")
@@ -723,7 +783,19 @@ class MumuScreenshot:
             self._ensure_connected()
             raise RuntimeError(f"ADB截图失败") from e
 
-    def capture(self, instance_num=None, save_path=None):
+    def _capture_once(self):
+        """执行一次截图（按当前模式，必要时自动退化）。"""
+        if self.screenshot_method == 'RAW':
+            now = time.time()
+            if now >= float(self._raw_fallback_until or 0.0):
+                img = self._capture_raw()
+                if img is not None:
+                    return img
+                print("RAW 模式失败，回退到 PNG 模式")
+
+        return self._capture_png()
+
+    def capture(self, instance_num=None, save_path=None, force_fresh: bool = False):
         """获取当前屏幕截图（合并版，避免重复定义覆盖）"""
         # 健康检查节流：避免在高帧率预览下频繁触发自愈逻辑
         now = time.time()
@@ -745,6 +817,15 @@ class MumuScreenshot:
                             break
                     time.sleep(0.1)
 
+            if force_fresh and self.running:
+                prev_ts = float(self._last_frame_ts or 0.0)
+                deadline = time.time() + 0.6
+                while time.time() < deadline:
+                    current_ts = float(self._last_frame_ts or 0.0)
+                    if current_ts > prev_ts:
+                        break
+                    time.sleep(0.05)
+
             img = None
             last_ts = 0.0
             with self.frame_lock:
@@ -765,7 +846,7 @@ class MumuScreenshot:
         else:
             # 非 Scrcpy：若流在跑取最新帧，否则单次截图
             img = None
-            if self.running:
+            if self.running and not force_fresh:
                 age = self.frame_age()
                 # 缓存太旧则不使用旧帧，直接走一次真实截图兜底
                 if age is not None and age > 2.0:
@@ -775,7 +856,11 @@ class MumuScreenshot:
                         if self.latest_frame is not None:
                             img = self.latest_frame.copy()
             if img is None:
-                img = self._capture_raw() if self.screenshot_method == 'RAW' else self._capture_once()
+                img = self._capture_once()
+                if img is not None and self.running:
+                    with self.frame_lock:
+                        self.latest_frame = img.copy()
+                        self._last_frame_ts = time.time()
 
         if img is None:
             raise ValueError("截图数据解析失败")

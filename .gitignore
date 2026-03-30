@@ -12,6 +12,9 @@ env/
 build/
 dist/
 *.egg-info/
+**/build/
+**/dist/
+**/node_modules/
 
 # IDEs
 .vscode/
@@ -29,3 +32,7 @@ Thumbs.db
 
 # Misc
 secrets.json
+debug_screen.png
+test/
+tower_climber_test/
+Game_screenshotReed_Autowork/webapp/frontend/test/

@@ -95,6 +95,13 @@
                      <input type="number" v-model.number="towerMaxRuns" min="0" placeholder="0为不限" class="small-input">
                    </label>
                  </div>
+                 <div class="tower-settings">
+                   <label>
+                     <input type="checkbox" v-model="towerKeepRecord">
+                     爬塔结束时保留记录
+                   </label>
+                   <span class="info-icon" data-tooltip="关闭时沿用当前删除记录流程&#10;开启时走保留记录流程（后端可自定义）">ⓘ</span>
+                 </div>
               </div>
             </div>
             <div class="actions-row">
@@ -297,9 +304,11 @@ export default {
       towerAttribute: 'light_earth',
       towerClimbType: 'standard',
       towerMaxRuns: 0,
+      towerKeepRecord: false,
       logs: [],
       lastLogIndex: 0,
       _poller: null,
+      _streamPoller: null,
       _statusPoller: null,
       emulatorTypes: [
         { label: '雷电模拟器 (LDPlayer)', value: 'LDPlayer', defaultPort: 5555 },
@@ -533,6 +542,7 @@ export default {
           payload.attribute_type = this.towerAttribute
           payload.climb_type = this.towerClimbType
           payload.max_runs = this.towerMaxRuns
+          payload.keep_tower_record = this.towerKeepRecord
         }
         if (type === 'dailytasks' || type === 'daily_and_tower' || type === 'combo') {
              const selected = Object.keys(this.dailySubTasks).filter(k => this.dailySubTasks[k]);
@@ -795,10 +805,14 @@ export default {
         const data = await res.json();
         
         if (data.success) {
-          let msg = `延迟: ${data.latency_ms.toFixed(2)} ms (模式: ${data.method})`;
-          if (data.is_stream_running) {
-            msg += " [流运行中，结果为缓存读取耗时]";
+          let msg = `延迟: ${data.latency_ms.toFixed(2)} ms (配置: ${data.method}`;
+          if (data.backend_method) {
+            msg += ` / 实际: ${data.backend_method}`;
           }
+          if (data.effective_method && data.effective_method !== data.method) {
+            msg += ` / 当前退化: ${data.effective_method}`;
+          }
+          msg += ")";
           this.latencyResult = {
             success: true,
             message: msg
@@ -929,6 +943,7 @@ export default {
   },
   beforeUnmount() {
     this.stopPolling()
+    this.stopStatusPolling()
   }
 }
 </script>

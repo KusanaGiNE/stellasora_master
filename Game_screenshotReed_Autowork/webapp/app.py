@@ -25,7 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from core import MumuScreenshot, Tapscreen, StartGame, IconDetector, Dailytasks, TowerClimber
 from threading import Event, Thread, Lock
-from core.config import get_config, update_config
+from core.config import get_config, update_config, resolve_path, normalize_path_input
 import threading
 
 app = Flask(__name__, static_folder=str(BASE_DIR / 'static'), static_url_path='', template_folder=str(BASE_DIR / 'templates'))
@@ -199,9 +199,6 @@ def generate_frames():
         loop_start = time.time()
         try:
             screenshot_tool = get_screenshot_tool()
-            # 预览流：不需要检测游戏显示器ID；避免额外 adb dumpsys。
-            # 同时对 RAW/SCRCPY 都做一次健康检查，让卡死能自动自愈。
-            screenshot_tool.ensure_stream(detect_display=False)
             frame = screenshot_tool.capture()
             if frame is None:
                 time.sleep(0.1)
@@ -277,8 +274,8 @@ def start_stream():
     global _preview_running
     with _preview_lock:
         _preview_running = True
-    # 预览启动不检测游戏显示器ID，任务启动时再检测
-    get_screenshot_tool().ensure_stream(detect_display=False)
+    # 预览作为长期消费者持有截图流，避免与任务互相抢流
+    get_screenshot_tool().acquire_stream('preview', detect_display=False)
     return jsonify({'ok': True, 'msg': 'Preview started'})
 
 @app.route('/stream/stop')
@@ -287,7 +284,7 @@ def stop_stream():
     global _preview_running
     with _preview_lock:
         _preview_running = False
-
+    get_screenshot_tool().release_stream('preview')
     return jsonify({'ok': True, 'msg': 'Preview stopped'})
 
 """任务控制：支持启动 / 停止 / 暂停 / 恢复。"""
@@ -333,6 +330,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
                 max_runs=kwargs.get('max_runs', 0),
                 stop_on_weekly=kwargs.get('stop_on_weekly', False),
                 climb_type=kwargs.get('climb_type'),
+                keep_record=kwargs.get('keep_record', False),
                 stop_event=stop_event,
                 sleep_fn=_interruptible_sleep
             )
@@ -348,6 +346,7 @@ def _run_task(task_type: str, stop_event: Event, **kwargs):
                     max_runs=kwargs.get('max_runs', 0),
                     stop_on_weekly=kwargs.get('stop_on_weekly', False),
                     climb_type=kwargs.get('climb_type'),
+                    keep_record=kwargs.get('keep_record', False),
                     stop_event=stop_event,
                     sleep_fn=_interruptible_sleep
                 )
@@ -389,10 +388,11 @@ def task_start():
     attribute_type = data.get('attribute_type')
     max_runs = data.get('max_runs', 0)
     climb_type = data.get('climb_type')
+    keep_tower_record = bool(data.get('keep_tower_record', False))
     daily_sub_tasks = data.get('daily_sub_tasks')
     invitation_characters = data.get('invitation_characters')
     add_friend_count = data.get('add_friend_count', 15)
-    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, daily_sub_tasks={daily_sub_tasks}, invitation_characters={invitation_characters}, add_friend_count={add_friend_count}")
+    print(f"收到任务启动请求: type={task_type}, attribute={attribute_type}, max_runs={max_runs}, climb_type={climb_type}, keep_tower_record={keep_tower_record}, daily_sub_tasks={daily_sub_tasks}, invitation_characters={invitation_characters}, add_friend_count={add_friend_count}")
 
   
     normalized_invitation = None
@@ -429,6 +429,7 @@ def task_start():
             kwargs['attribute_type'] = attribute_type
             kwargs['max_runs'] = max_runs
             kwargs['climb_type'] = climb_type
+            kwargs['keep_record'] = keep_tower_record
             # 默认开启周常检测
             kwargs['stop_on_weekly'] = True
         
@@ -636,25 +637,28 @@ def api_stream_status():
         # running 表示“预览是否开启”（给前端按钮用）
         "running": preview_running,
         "method": screenshot_tool.screenshot_method,
+        "effective_method": screenshot_tool.effective_capture_method(),
+        "last_capture_backend": screenshot_tool.last_capture_backend(),
         # stream_alive 表示“底层截图流是否在跑”（调试/稳定性用）
         "stream_alive": screenshot_tool.running,
+        "frame_age": screenshot_tool.frame_age(),
+        "consumers": list(screenshot_tool.stream_consumers()),
     })
 
 @app.route('/api/test_latency', methods=['POST'])
 def test_latency():
     """测试当前截图方式的延迟"""
+    acquired_for_test = False
     try:
         screenshot_tool = get_screenshot_tool()
-        # 延迟测试不必检测游戏显示器ID；任务启动时再检测
-        if screenshot_tool.screenshot_method == 'SCRCPY' and not screenshot_tool.running:
-            screenshot_tool.start_stream(detect_display=False)
+        if screenshot_tool.screenshot_method == 'SCRCPY':
+            screenshot_tool.acquire_stream('latency_test', detect_display=False)
+            acquired_for_test = True
         # 记录开始时间
         start_time = time.time()
         
-        # 强制执行一次截图
-        # 注意：如果流正在运行，capture() 返回的是缓存帧，延迟会非常低（接近0）
-        # 如果流未运行，capture() 会执行真实的截图操作
-        frame = screenshot_tool.capture()
+        # 强制执行一次真实截图，避免仅命中缓存导致延迟结果失真
+        frame = screenshot_tool.capture(force_fresh=True)
         
         if frame is None:
             return jsonify({"success": False, "error": "截图失败"})
@@ -666,10 +670,15 @@ def test_latency():
             "success": True, 
             "latency_ms": latency_ms,
             "method": screenshot_tool.screenshot_method,
+            "effective_method": screenshot_tool.effective_capture_method(),
+            "backend_method": screenshot_tool.last_capture_backend(),
             "is_stream_running": screenshot_tool.running
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+    finally:
+        if acquired_for_test:
+            get_screenshot_tool().release_stream('latency_test')
 
 @app.route('/config', methods=['GET', 'POST'])
 def config_endpoint():
@@ -697,14 +706,28 @@ def config_endpoint():
 @app.route('/config/test_adb', methods=['POST'])
 def test_adb_connection():
     data = request.get_json(silent=True) or {}
-    adb_path_str = data.get('adb_path')
+    adb_path_input = data.get('adb_path')
     adb_port = data.get('adb_port')
-    
+
+    adb_path_str = normalize_path_input(adb_path_input)
     if not adb_path_str:
         return jsonify({'ok': False, 'error': 'ADB路径为空'}), 400
-        
-    if not os.path.exists(adb_path_str):
-         return jsonify({'ok': False, 'error': f'文件不存在: {adb_path_str}'}), 400
+
+    adb_path = resolve_path(adb_path_str)
+    if not adb_path:
+        return jsonify({'ok': False, 'error': '无法解析ADB路径'}), 400
+
+    if not adb_path.exists():
+         return jsonify({'ok': False, 'error': f'文件不存在: {adb_path}'}), 400
+
+    if adb_path.is_dir():
+        candidate = adb_path / 'adb.exe'
+        if candidate.exists():
+            adb_path = candidate
+        else:
+            return jsonify({'ok': False, 'error': f'当前路径是文件夹，请填写 adb.exe 完整路径: {adb_path}'}), 400
+
+    adb_path_str = str(adb_path)
 
     try:
         # 1. Connect
@@ -732,4 +755,3 @@ def test_adb_connection():
 if __name__ == '__main__':
     # 在本地运行，监听 127.0.0.1:5000
     app.run(host='127.0.0.1', port=5000, debug=True, threaded=True)
-

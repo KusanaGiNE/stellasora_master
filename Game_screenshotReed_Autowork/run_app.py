@@ -11,20 +11,13 @@ import time
 import webbrowser
 from pathlib import Path
 
-
-import flask
-import cv2
-import numpy
-try:
-    import webapp.app
-except ImportError:
-    pass
-
 PYPI_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
 REQUIRED_PACKAGES = [
     "flask",
     "opencv-python",
     "numpy",
+    "ddddocr",
+    "Pillow",
 ]
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5000

@@ -271,11 +271,11 @@ class Dailytasks(BaseTask):
 
     def run(self, stop_event=None, sleep_fn=None, selected_tasks=None, invitation_characters=None, add_friend_count=15):
         # 开启截图流，提高效率
-        self.screenshot_tool.start_stream()
+        self.screenshot_tool.acquire_stream('daily_tasks', detect_display=False)
         try:
             self._run_internal(stop_event, sleep_fn, selected_tasks, invitation_characters, add_friend_count)
         finally:
-            self.screenshot_tool.stop_stream()
+            self.screenshot_tool.release_stream('daily_tasks')
 
     @staticmethod
     def screenshots_almost_same(img_a, img_b, pixel_threshold=3, change_ratio=0.001):
