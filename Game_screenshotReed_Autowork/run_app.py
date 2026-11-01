@@ -1,6 +1,19 @@
 
 from __future__ import annotations
 
+# 控制台编码兜底：Windows 下 sys.stdout 常为 GBK/CP936，模块级日志里的
+# emoji（✅ / ⚠️）会抛 UnicodeEncodeError 直接打断启动。这里统一把不可编码
+# 字符降级为替换符，中文输出不受影响。
+import sys as _sys
+
+for _stream_name in ("stdout", "stderr"):
+    _stream = getattr(_sys, _stream_name, None)
+    try:
+        if _stream is not None and hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 import importlib
 import os
 import socket
