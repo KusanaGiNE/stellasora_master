@@ -720,16 +720,17 @@ class MumuScreenshot:
             # 基础健壮性校验：防止异常 header 导致 reshape 崩/吃内存
             if w <= 0 or h <= 0 or w > 10000 or h > 10000:
                 return None
-            
-            # 校验数据长度
-            expected_len = w * h * 4 + 12
-            if len(data) < expected_len:
-                # 有时候 adb 输出可能会截断或包含额外换行符转换
-                # 如果长度不对，回退到 PNG 模式或报错
-                # print(f"RAW数据长度不匹配: {len(data)} vs {expected_len}")
+
+            # 头部长度随系统版本变化：Android 9 及以前是 12 字节 (w, h, format)，
+            # Android 10+ 增加 colorspace 字段变成 16 字节。写死 12 字节会让像素整体
+            # 错位（长度校验刚好能过，画面却是斜切/串色的），因此按实际长度推断。
+            pixel_bytes = w * h * 4
+            header_len = len(data) - pixel_bytes
+            if header_len < 12 or header_len > 64:
+                # 长度对不上（截断或 \n -> \r\n 转换），交给 PNG 模式兜底
                 return None
 
-            pixels = data[12:expected_len]
+            pixels = data[header_len:header_len + pixel_bytes]
             
             # 将字节转换为 numpy 数组
             img = np.frombuffer(pixels, dtype=np.uint8)
