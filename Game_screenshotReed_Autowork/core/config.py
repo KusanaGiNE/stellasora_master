@@ -75,9 +75,29 @@ def resolve_path(value: str | Path | None) -> Path | None:
     return path
 
 
+def normalize_adb_executable(value: str | Path | None) -> str | None:
+    """把 ADB 路径归一化为可执行文件。
+
+    设置页里用户（以及前端切换模拟器类型时的回写逻辑）往往只填到模拟器目录，
+    例如 ``C:\\Program Files\\Netease\\MuMu\\nx_main``。直接把目录当作命令执行
+    会得到“系统找不到指定的文件”，因此这里在目录下自动补 adb.exe。
+    """
+    normalized = normalize_path_input(value)
+    if not normalized:
+        return None
+
+    path = resolve_path(normalized)
+    if path is not None and path.is_dir():
+        for name in ("adb.exe", "adb"):
+            candidate = path / name
+            if candidate.exists():
+                return str(candidate)
+    return normalized
+
+
 def get_adb_path(raise_on_missing: bool = True) -> Path | None:
     config = get_config()
-    raw = config.get("adb_path")
+    raw = normalize_adb_executable(config.get("adb_path"))
     if not raw:
         if raise_on_missing:
             raise FileNotFoundError("ADB 路径未配置，请在设置页面填写 adb_path")
@@ -119,7 +139,7 @@ def update_config(values: Dict[str, Any]) -> Dict[str, Any]:
     filtered = {k: v for k, v in values.items() if k in allowed_keys}
 
     if "adb_path" in filtered:
-        filtered["adb_path"] = normalize_path_input(filtered.get("adb_path")) or ""
+        filtered["adb_path"] = normalize_adb_executable(filtered.get("adb_path")) or ""
 
     emulator_configs = filtered.get("emulator_configs")
     if isinstance(emulator_configs, dict):
@@ -130,7 +150,7 @@ def update_config(values: Dict[str, Any]) -> Dict[str, Any]:
                 continue
 
             normalized_item = dict(item)
-            normalized_item["path"] = normalize_path_input(item.get("path")) or ""
+            normalized_item["path"] = normalize_adb_executable(item.get("path")) or ""
             normalized_emulator_configs[name] = normalized_item
         filtered["emulator_configs"] = normalized_emulator_configs
 
